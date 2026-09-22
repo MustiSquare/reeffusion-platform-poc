@@ -27,7 +27,13 @@ def build_surface_mesh(point_cloud: PointCloud) -> trimesh.Trimesh:
         [point_cloud.x.ravel(), point_cloud.y.ravel(), point_cloud.z.ravel()]
     )
     faces = _grid_faces(*point_cloud.z.shape)
+    support = point_cloud.metadata.get("support_mask")
+    if support is not None:
+        mask = np.asarray(support, dtype=bool).ravel()
+        faces = faces[np.all(mask[faces], axis=1)]
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    if support is not None:
+        mesh.remove_unreferenced_vertices()
     mesh.metadata.update({"source": point_cloud.source, "geometry": point_cloud.metadata})
     return mesh
 

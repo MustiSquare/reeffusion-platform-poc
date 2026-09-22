@@ -1,0 +1,84 @@
+{
+  "texture_file": "coral_texture.jpg",
+  "mapping": "planar_xy_normalized_uv",
+  "uv_origin": "lower_left",
+  "u_axis": "x",
+  "v_axis": "y",
+  "bounds": {
+    "min_x": 39.653,
+    "max_x": 41.271,
+    "min_y": 0.181,
+    "max_y": 2.065
+  },
+  "source": "bathymetry-derived point cloud from bathymetry_xyz.csv",
+  "geometry_metadata": {
+    "point_count": 5,
+    "grid_shape": [
+      3,
+      3
+    ],
+    "regular_grid": false,
+    "interpolated": true,
+    "interpolation": {
+      "method": "idw",
+      "power": 2.0,
+      "grid_size": 3
+    },
+    "source": "bathymetry_xyz.csv",
+    "crs": "LOCAL_GRID",
+    "coordinate_columns": {
+      "x": "x",
+      "y": "y"
+    },
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_convention": "elevation_positive_up",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "bounds": {
+      "min_x": 39.653,
+      "min_y": 0.181,
+      "max_x": 41.271,
+      "max_y": 2.065,
+      "min_z": -14.408,
+      "max_z": -13.478
+    },
+    "centroid": {
+      "x": 40.35080000000001,
+      "y": 1.2296
+    },
+    "source_metadata": {
+      "crs": "LOCAL_GRID",
+      "xy_units": "meters",
+      "vertical_datum": "vehicle_origin_uncorrected",
+      "support_radius_m": "2",
+      "projected_crs": "EPSG:32605",
+      "origin_easting": "196400",
+      "origin_northing": "2234750",
+      "replay_id": "aa893d5b-1fe4-4f39-9ba1-44e641ee275c",
+      "replay_until_seconds": "3798.0"
+    },
+    "support_mask": [
+      [
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true
+      ]
+    ],
+    "support_radius_m": 2.0,
+    "supported_fraction": 1.0,
+    "metrics_note": "Legacy grid metrics include interpolation; not valid as measured-coverage metrics.",
+    "image_asset_count": 0,
+    "method": "structured bathymetry surface reconstruction"
+  }
+}

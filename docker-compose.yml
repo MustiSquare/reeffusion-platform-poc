@@ -39,6 +39,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000   # ✅ interner Docker-Port
       PYTHONPATH: /app
+      PROCESSED_EXPORT_DIR: /app/test_data
     ports:
       - "8000:8000"
     depends_on:
@@ -51,6 +52,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
+      - ./test_data:/app/test_data
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
 
@@ -62,6 +64,7 @@ services:
       DATABASE_URL: postgresql+psycopg://reefusion:reefusion@postgres:5432/reefusion
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000
+      PROCESSED_EXPORT_DIR: /app/test_data
     depends_on:
       - backend
       - redis
@@ -69,6 +72,7 @@ services:
       - minio
     volumes:
       - ./backend/app:/app/app
+      - ./test_data:/app/test_data
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
 

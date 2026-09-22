@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pathlib import Path
 
 class Settings(BaseSettings):
     project_name: str = "ReefFusion Platform"
@@ -15,5 +16,6 @@ class Settings(BaseSettings):
     auth_enabled: bool = False
     auth_admin_token: str = "local-admin-token"
     auth_editor_token: str = "local-editor-token"
+    processed_export_dir: str = str(Path(__file__).resolve().parents[3] / "test_data")
 
 settings = Settings()

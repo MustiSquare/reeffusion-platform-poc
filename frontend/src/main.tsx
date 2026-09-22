@@ -1,4 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -31,6 +38,8 @@ import {
   AlertTriangle,
   Download,
   FileDown,
+  Sun,
+  Moon,
 } from "lucide-react";
 import {
   getJson,
@@ -41,6 +50,44 @@ import {
   assetUrl,
 } from "./api/client";
 import "./styles.css";
+import LiveSurvey from "./survey/LiveSurvey";
+import { viewerFraming } from "./survey/viewerFraming";
+
+type Theme = "dark" | "light";
+const THEME_KEY = "reef-theme";
+
+/* The 3D scene is drawn by WebGL, so it cannot read the CSS custom
+   properties the rest of the UI uses. These mirror the --scene-* tokens
+   in styles.css — keep the two in sync. */
+const sceneColors: Record<Theme, Record<string, string>> = {
+  dark: {
+    background: "#05131f",
+    reef: "#1a7182",
+    wireframe: "#7dd3fc",
+    grid: "#38bdf8",
+    gridSub: "#164e63",
+  },
+  light: {
+    background: "#dbeaf2",
+    reef: "#2a94a8",
+    wireframe: "#0e7490",
+    grid: "#0e7490",
+    gridSub: "#9cbccb",
+  },
+};
+
+function readStoredTheme(): Theme {
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    /* localStorage unavailable (private mode, blocked cookies) */
+  }
+  return "dark";
+}
+
+const ThemeContext = createContext<Theme>("dark");
+const useTheme = () => useContext(ThemeContext);
 
 type Dataset = {
   id: string;
@@ -74,6 +121,7 @@ type AnnotationItem = {
   properties_json?: any;
 };
 type ReefPoint = {
+  supported?: boolean;
   x: number;
   y: number;
   z: number;
@@ -180,6 +228,7 @@ const tabs = [
   "Processed Data Viewer",
   "AI-Agents",
   "Data Archive",
+  "Live Survey",
 ];
 const benthicClasses = ["coral", "rock", "sand", "algae"];
 const healthClasses = ["healthy", "bleached", "dead", "diseased"];
@@ -214,8 +263,8 @@ function parseXYZ(text: string): ReefPoint[] {
     .split("\n")
     .slice(1)
     .map((line) => {
-      const [x, y, z] = line.split(",").map(Number);
-      return { x, y, z };
+      const [x, y, z, supported] = line.split(",").map(Number);
+      return { x, y, z, supported: supported !== 0 };
     })
     .filter(
       (p) =>
@@ -227,9 +276,13 @@ function parseXYZ(text: string): ReefPoint[] {
 function OrbitController({
   target,
   viewSignal,
+  minDistance,
+  maxDistance,
 }: {
   target: THREE.Vector3;
   viewSignal: number;
+  minDistance: number;
+  maxDistance: number;
 }) {
   const { camera, gl } = useThree();
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -238,13 +291,13 @@ function OrbitController({
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.screenSpacePanning = true;
-    controls.minDistance = 1.2;
-    controls.maxDistance = 80;
+    controls.minDistance = minDistance;
+    controls.maxDistance = maxDistance;
     controls.target.copy(target);
     controls.update();
     controlsRef.current = controls;
     return () => controls.dispose();
-  }, [camera, gl, target]);
+  }, [camera, gl, target, minDistance, maxDistance]);
   useEffect(() => {
     controlsRef.current?.target.copy(target);
     controlsRef.current?.update();
@@ -258,13 +311,14 @@ function buildPointGeometry(
   zScale: number,
   colorBy: "depth" | "benthic" | "health",
 ) {
+  points = points.filter(p => p.supported !== false);
   if (!points.length) return new THREE.BufferGeometry();
   const positions = new Float32Array(points.length * 3);
   const colors = new Float32Array(points.length * 3);
   const color = new THREE.Color();
   const zVals = points.map((p) => p.z);
-  const minZ = Math.min(...zVals);
-  const maxZ = Math.max(...zVals);
+  const minZ = zVals.reduce((a,b)=>Math.min(a,b),Infinity);
+  const maxZ = zVals.reduce((a,b)=>Math.max(a,b),-Infinity);
   const span = Math.max(maxZ - minZ, 0.001);
   points.forEach((p, i) => {
     positions[i * 3] = p.x;
@@ -302,7 +356,8 @@ function buildSurfaceGeometry(points: ReefPoint[], zScale: number) {
         b = a + 1,
         c = a + n,
         d = c + 1;
-      indices.push(a, c, b, b, c, d);
+      if ([a,c,b].every(i => ordered[i].supported !== false)) indices.push(a,c,b);
+      if ([b,c,d].every(i => ordered[i].supported !== false)) indices.push(b,c,d);
     }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -546,6 +601,7 @@ function ReefScene({
   draftSurface,
   textureUrl,
   glbScene,
+  theme,
 }: {
   points: ReefPoint[];
   annotations: AnnotationItem[];
@@ -562,15 +618,19 @@ function ReefScene({
   draftSurface?: ReefPoint[];
   textureUrl?: string;
   glbScene?: THREE.Object3D | null;
+  theme: Theme;
 }) {
+  const scene = sceneColors[theme];
   const pointGeometry = useMemo(
     () => buildPointGeometry(points, zScale, colorBy),
     [points, zScale, colorBy],
   );
   const meshGeometry = useMemo(
-    () => buildSurfaceGeometry(points, zScale),
-    [points, zScale],
+    () => glbScene ? new THREE.BufferGeometry() : buildSurfaceGeometry(points, zScale),
+    [points, zScale, glbScene],
   );
+  useEffect(() => () => {pointGeometry.dispose();}, [pointGeometry]);
+  useEffect(() => () => {meshGeometry.dispose();}, [meshGeometry]);
   const [reefTexture, setReefTexture] = useState<THREE.Texture | null>(null);
   const transformedGlbScene = useMemo(
     () => (glbScene ? transformGlbScene(glbScene, zScale) : null),
@@ -590,36 +650,45 @@ function ReefScene({
       setReefTexture(tex);
     });
   }, [textureUrl]);
-  const center = useMemo(() => {
+  const wireScene = useMemo(() => {
+    if (!transformedGlbScene) return null;
+    const clone = transformedGlbScene.clone(true);
+    clone.traverse((child:any) => {
+      if (child.isMesh) child.material = new THREE.MeshBasicMaterial({color:scene.wireframe,wireframe:true,transparent:true,opacity:.3});
+    });
+    return clone;
+  }, [transformedGlbScene, scene.wireframe]);
+  useEffect(() => () => {wireScene?.traverse((child:any)=>{if(child.isMesh)child.material.dispose();});}, [wireScene]);
+  useEffect(() => () => {transformedGlbScene?.traverse((child:any)=>{if(child.isMesh){child.geometry.dispose();child.material.dispose();}});}, [transformedGlbScene]);
+  const sceneBounds = useMemo(() => {
     const box = new THREE.Box3();
     if (transformedGlbScene) {
       box.setFromObject(transformedGlbScene);
-      if (!box.isEmpty()) {
-        const c = new THREE.Vector3();
-        box.getCenter(c);
-        return c;
-      }
     }
     const geometryBox = meshGeometry.boundingBox;
-    if (!geometryBox) return new THREE.Vector3(0, -8 * zScale, 0);
-    const c = new THREE.Vector3();
-    geometryBox.getCenter(c);
-    return c;
+    if (geometryBox) box.union(geometryBox);
+    return box;
   }, [meshGeometry, transformedGlbScene, zScale]);
-  const { camera } = useThree();
+  const { camera, size: viewport } = useThree();
+  const framing = useMemo(() => viewerFraming(sceneBounds, viewport.width / Math.max(1, viewport.height)), [sceneBounds, viewport.width, viewport.height]);
+  const center = framing.center;
   const [viewSignal, setViewSignal] = useState(0);
   useEffect(() => {
-    const dist = 10;
+    const dist = framing.distance;
+    const direction = new THREE.Vector3(5, 4, 7).normalize();
     if (viewPreset === "top")
-      camera.position.set(center.x, center.y + dist, center.z + 0.01);
+      direction.set(0, 1, 0.001).normalize();
     else if (viewPreset === "side")
-      camera.position.set(center.x + dist, center.y + 2.5, center.z);
+      direction.set(1, 0, 0);
     else if (viewPreset === "front")
-      camera.position.set(center.x, center.y + 2.5, center.z + dist);
-    else camera.position.set(center.x + 5, center.y + 4, center.z + 7);
+      direction.set(0, 0, 1);
+    camera.position.copy(center).addScaledVector(direction, dist);
+    camera.near = framing.near;
+    camera.far = framing.far;
+    camera.updateProjectionMatrix();
     camera.lookAt(center);
     setViewSignal((s) => s + 1);
-  }, [viewPreset, camera, center]);
+  }, [viewPreset, camera, framing]);
   const handleMeshClick = (e: any) => {
     e.stopPropagation();
     const p = e.point as THREE.Vector3;
@@ -635,12 +704,11 @@ function ReefScene({
   };
   return (
     <>
-      <color attach="background" args={["#05131f"]} />
-      <fog attach="fog" args={["#05131f", 8, 34]} />
+      <color attach="background" args={[scene.background]} />
       <ambientLight intensity={0.75} />
       <directionalLight position={[4, 8, 5]} intensity={1.4} />
       <pointLight position={[-4, -3, 2]} intensity={0.5} />
-      <OrbitController target={center} viewSignal={viewSignal} />
+      <OrbitController target={center} viewSignal={viewSignal} minDistance={framing.minDistance} maxDistance={framing.maxDistance} />
       {layers.surface && transformedGlbScene && (
         <primitive object={transformedGlbScene} onClick={handleMeshClick} />
       )}
@@ -652,7 +720,7 @@ function ReefScene({
         >
           <meshStandardMaterial
             map={reefTexture || undefined}
-            color={reefTexture ? "#ffffff" : "#1a7182"}
+            color={reefTexture ? "#ffffff" : scene.reef}
             transparent
             opacity={layers.pointCloud ? 0.55 : 0.92}
             side={THREE.DoubleSide}
@@ -661,10 +729,11 @@ function ReefScene({
           />
         </mesh>
       )}
-      {layers.wireframe && points.length > 0 && (
+      {layers.wireframe && wireScene && <primitive object={wireScene} onClick={handleMeshClick} />}
+      {layers.wireframe && !wireScene && points.length > 0 && (
         <mesh geometry={meshGeometry}>
           <meshBasicMaterial
-            color="#7dd3fc"
+            color={scene.wireframe}
             wireframe
             transparent
             opacity={0.22}
@@ -692,8 +761,8 @@ function ReefScene({
       )}
       {layers.grid && (
         <gridHelper
-          args={[10, 20, "#38bdf8", "#164e63"]}
-          position={[0, -9.2 * zScale, 0]}
+          args={[framing.gridSize, 20, scene.grid, scene.gridSub]}
+          position={[center.x, framing.floor, center.z]}
         />
       )}
     </>
@@ -705,6 +774,7 @@ function ProfessionalViewer({
   annotationMode = false,
   onAnnotationCreated,
 }: ViewerProps) {
+  const theme = useTheme();
   const [points, setPoints] = useState<ReefPoint[]>([]);
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
   const [textureUrl, setTextureUrl] = useState<string>("");
@@ -754,14 +824,26 @@ function ProfessionalViewer({
       return;
     }
     let cancelled = false;
+    let loadedScene:THREE.Object3D|null=null;
+    const releaseScene=(scene:THREE.Object3D)=>scene.traverse((child:any)=>{
+      if(!child.isMesh)return;
+      child.geometry.dispose();
+      for(const material of (Array.isArray(child.material)?child.material:[child.material])){
+        for(const value of Object.values(material))if(value instanceof THREE.Texture)value.dispose();
+        material.dispose();
+      }
+    });
     setLoading(true);
     setError("");
     setPicked(null);
+    setMeasure([]);
+    setAnnotations([]);
     setSurfaceDraft([]);
     setSelectedAnnotation(null);
     setTextureUrl("");
     setGlbScene(null);
     setGeometrySource("");
+    setPoints([]);
     (async () => {
       try {
         const [d, anns] = await Promise.all([
@@ -785,6 +867,8 @@ function ProfessionalViewer({
         if (glbAsset) {
           const loader = new GLTFLoader();
           const gltf = await loader.loadAsync(assetUrl(glbAsset.url));
+          if (cancelled) {releaseScene(gltf.scene);return;}
+          loadedScene=gltf.scene;
           if (!cancelled) {
             setGlbScene(gltf.scene);
             setGeometrySource(glbAsset.file_name);
@@ -809,6 +893,7 @@ function ProfessionalViewer({
     })();
     return () => {
       cancelled = true;
+      if(loadedScene)releaseScene(loadedScene);
     };
   }, [dataset?.id]);
   const bounds = useMemo(() => {
@@ -818,10 +903,10 @@ function ProfessionalViewer({
       zs = points.map((p) => p.z);
     return {
       count: points.length,
-      minZ: Math.min(...zs),
-      maxZ: Math.max(...zs),
-      width: Math.max(...xs) - Math.min(...xs),
-      height: Math.max(...ys) - Math.min(...ys),
+      minZ: zs.reduce((a,b)=>Math.min(a,b),Infinity),
+      maxZ: zs.reduce((a,b)=>Math.max(a,b),-Infinity),
+      width: xs.reduce((a,b)=>Math.max(a,b),-Infinity) - xs.reduce((a,b)=>Math.min(a,b),Infinity),
+      height: ys.reduce((a,b)=>Math.max(a,b),-Infinity) - ys.reduce((a,b)=>Math.min(a,b),Infinity),
     };
   }, [points]);
   const addAnnotationPick = (p: ReefPoint) => {
@@ -903,7 +988,7 @@ function ProfessionalViewer({
           <b>{dataset?.name || "No processed dataset selected"}</b>
           <span>
             {bounds
-              ? `${bounds.count.toLocaleString()} points · depth ${bounds.minZ.toFixed(2)} to ${bounds.maxZ.toFixed(2)} m`
+              ? `${bounds.width.toFixed(1)} × ${bounds.height.toFixed(1)} m · ${bounds.count.toLocaleString()} points · depth ${bounds.minZ.toFixed(2)} to ${bounds.maxZ.toFixed(2)} m`
               : glbScene
                 ? `GLB mesh loaded · ${geometrySource}`
                 : "No geometry loaded"}
@@ -938,7 +1023,7 @@ function ProfessionalViewer({
         </button>
         <button onClick={() => setViewPreset(`reset-${Date.now()}`)}>
           <RotateCcw size={16} />
-          Reset
+          Fit dataset
         </button>
         <button onClick={() => setViewPreset("top")}>Top</button>
         <button onClick={() => setViewPreset("side")}>Side</button>
@@ -1068,6 +1153,7 @@ function ProfessionalViewer({
                 draftSurface={surfaceDraft}
                 textureUrl={textureUrl}
                 glbScene={glbScene}
+                theme={theme}
               />
             )}
           </Canvas>
@@ -1487,8 +1573,10 @@ function InteractiveSurveyTable({
   );
 }
 
-function App() {
+export function App() {
+  const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [tab, setTab] = useState(tabs[0]);
+  const [surveyOpened, setSurveyOpened] = useState(false);
   const [raw, setRaw] = useState<Dataset[]>([]);
   const [proc, setProc] = useState<Dataset[]>([]);
   const [selected, setSelected] = useState<Dataset | undefined>();
@@ -1497,10 +1585,18 @@ function App() {
     getJson("/api/datasets/raw").then(setRaw);
     getJson("/api/datasets/processed").then((d) => {
       setProc(d);
-      if (!selected && d[0]) setSelected(d[0]);
+      setSelected(current => current || d[0]);
     });
   };
   useEffect(refresh, []);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* localStorage unavailable — theme still applies for this session */
+    }
+  }, [theme]);
   useEffect(() => {
     if (job?.job_id || job?.id) {
       const id = job.job_id || job.id;
@@ -1512,77 +1608,106 @@ function App() {
     }
   }, [job?.job_id, job?.id]);
   return (
-    <main>
-      <div className="caustics" />
-      <header>
-        <div>
-          <h1>
-            <Waves /> ReefFusion Platform
-          </h1>
-          <p>
-            Integrated workspace for sonar bathymetry, downward-facing imagery,
-            GPS metadata, AI-assisted reconstruction and temporal reef
-            comparison.
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            postJson("/api/datasets/survey/generate").then(refresh)
-          }
-        >
-          Generate Reef Survey
-        </button>
-      </header>
-      <nav>
-        {tabs.map((t, i) => (
-          <button
-            className={tab === t ? "active" : ""}
-            onClick={() => setTab(t)}
-            key={t}
-          >
-            {
-              [
-                <Upload />,
-                <Database />,
-                <Play />,
-                <Waves />,
-                <Brain />,
-                <Tags />,
-              ][i]
-            }
-            {t}
-          </button>
-        ))}
-      </nav>
-      <section className="card">
-        {tab === "Raw Data Upload" && <UploadTab refresh={refresh} />}{" "}
-        {tab === "Raw Data Viewer" && <RawViewer raw={raw} />}{" "}
-        {tab === "Raw Data Processing" && (
-          <Processing raw={raw} job={job} setJob={setJob} />
-        )}{" "}
-        {tab === "Processed Data Viewer" && (
-          <>
-            <DatasetPicker data={proc} setSelected={setSelected} />
-            <ProfessionalViewer dataset={selected || proc[0]} />
-          </>
-        )}{" "}
-        {tab === "Data Archive" && (
-          <Archive
-            raw={raw}
-            proc={proc}
-            open={(d: Dataset) => {
-              setSelected(d);
+    <ThemeContext.Provider value={theme}>
+      <main>
+        <header>
+          <div>
+            <h1>
+              <Waves /> ReefFusion Platform
+            </h1>
+            <p>
+              Integrated workspace for sonar bathymetry, downward-facing
+              imagery, GPS metadata, AI-assisted reconstruction and temporal
+              reef comparison.
+            </p>
+          </div>
+          <div className="headerActions">
+            <button
+              aria-label="Toggle theme"
+              aria-pressed={theme === "light"}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? <Moon /> : <Sun />}
+              {theme === "dark" ? "Dark mode" : "Light mode"}
+            </button>
+            <button
+              onClick={() =>
+                postJson("/api/datasets/survey/generate").then(refresh)
+              }
+            >
+              Generate Reef Survey
+            </button>
+          </div>
+        </header>
+        <nav>
+          {tabs.map((t, i) => (
+            <button
+              className={tab === t ? "active" : ""}
+              onClick={() => { setTab(t); if (t === "Live Survey") setSurveyOpened(true); }}
+              key={t}
+            >
+              {
+                [
+                  <Upload />,
+                  <Database />,
+                  <Play />,
+                  <Waves />,
+                  <Brain />,
+                  <Tags />,
+                  <MapPin />,
+                ][i]
+              }
+              {t}
+            </button>
+          ))}
+        </nav>
+        <section className="card">
+          {surveyOpened && <div hidden={tab !== "Live Survey"}>
+            <LiveSurvey visible={tab === "Live Survey"} refresh={refresh} openArea={async (ids) => {
+              const result = await postJson('/api/survey/combined-area', {dataset_ids:ids});
+              const dataset = await getJson(`/api/datasets/processed/${result.dataset_id}`);
+              setSelected(dataset);
               setTab("Processed Data Viewer");
-            }}
-            openRaw={(d: Dataset) => {
-              setSelected(d);
-              setTab("Raw Data Viewer");
-            }}
-          />
-        )}{" "}
-        {tab === "AI-Agents" && <AiAgents proc={proc} />}
-      </section>
-    </main>
+              refresh();
+            }} openProcessed={async (id) => {
+              const dataset = await getJson(`/api/datasets/processed/${id}`);
+              setSelected(dataset);
+              setTab("Processed Data Viewer");
+              refresh();
+            }} />
+          </div>}
+          {tab === "Raw Data Upload" && <UploadTab refresh={refresh} />}{" "}
+          {tab === "Raw Data Viewer" && <RawViewer raw={raw} />}{" "}
+          {tab === "Raw Data Processing" && (
+            <Processing raw={raw} job={job} setJob={setJob} />
+          )}{" "}
+          {tab === "Processed Data Viewer" && (
+            <>
+              <div className="survey-controls">
+                <button onClick={() => { setSurveyOpened(true); setTab("Live Survey"); }}>Back to survey map</button>
+                <button onClick={() => setTab("Data Archive")}>Browse other datasets</button>
+              </div>
+              <ProfessionalViewer dataset={selected || proc[0]} />
+            </>
+          )}{" "}
+          {tab === "Data Archive" && (
+            <Archive
+              raw={raw}
+              proc={proc}
+              open={(d: Dataset) => {
+                  setSelected(d);
+                setTab("Processed Data Viewer");
+              }}
+              openRaw={(d: Dataset) => {
+                setSelected(d);
+                setTab("Raw Data Viewer");
+              }}
+            />
+          )}{" "}
+          {tab === "AI-Agents" && <AiAgents proc={proc} />}
+        </section>
+      </main>
+    </ThemeContext.Provider>
   );
 }
 function UploadTab({ refresh }: any) {
@@ -2529,4 +2654,5 @@ function Archive({ raw, proc, open, openRaw }: any) {
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+const rootElement = document.getElementById("root");
+if (rootElement) createRoot(rootElement).render(<App />);

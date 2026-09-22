@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.models.tables import ProcessingJob, RawDataset, ProcessedDataset, ProcessedAsset
 from app.processing.synthetic_data import reef_grid, _coral_texture
 from app.processing.bathymetry import BathymetryGrid, load_bathymetry_grid
+from app.services.processed_export import record_export
 from app.processing.photogrammetry import reconstruct_point_cloud, point_cloud_to_xyz_csv
 from app.processing.mesh import export_mesh_glb, export_mesh_obj, export_mesh_ply, texture_mapping_metadata
 from app.processing.rugosity import rugosity_from_grid
@@ -243,6 +244,12 @@ def run_processing_pipeline(db: Session, job_id: str):
             image_quality=image_quality,
             model_confidences=model_confidences,
         )
+        if raw.source == "survey_replay":
+            quality_report.validation_status = "warning"
+            quality_report.warnings.extend((raw.metadata_json or {}).get("warnings", []))
+            quality_report.warnings.append("Partial survey: legacy grid metrics include interpolation outside measured coverage.")
+            quality_report.scientific_validity["is_scientifically_valid"] = False
+            quality_report.scientific_validity["status"] = "provisional_survey_replay"
         metrics = {
             **base_metrics,
             "cover": benthic.get("classes", {}),
@@ -311,6 +318,9 @@ def run_processing_pipeline(db: Session, job_id: str):
                 "ai_layers": projected_layers.get("layers", []),
             },
         )
+        # Flush assets before enumerating them for the dated local export.
+        db.flush()
+        record_export(db, proc, raw, s3)
         raw.status = "processed"
         job.status = "completed"
         job.current_step = STEP_COMPLETED

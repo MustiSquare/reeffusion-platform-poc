@@ -39,7 +39,10 @@ def reconstruct_point_cloud(raw_dataset, bathymetry: BathymetryGrid) -> PointClo
 def point_cloud_to_xyz_csv(point_cloud: PointCloud) -> bytes:
     out = io.StringIO()
     writer = csv.writer(out)
-    writer.writerow(["x", "y", "z"])
-    for x, y, z in zip(point_cloud.x.ravel(), point_cloud.y.ravel(), point_cloud.z.ravel()):
-        writer.writerow([round(float(x), 4), round(float(y), 4), round(float(z), 4)])
+    support = point_cloud.metadata.get("support_mask")
+    mask = np.asarray(support, dtype=bool).ravel() if support is not None else None
+    writer.writerow(["x", "y", "z", "supported"] if mask is not None else ["x", "y", "z"])
+    for i, (x, y, z) in enumerate(zip(point_cloud.x.ravel(), point_cloud.y.ravel(), point_cloud.z.ravel())):
+        row = [round(float(x), 4), round(float(y), 4), round(float(z), 4)]
+        writer.writerow(row + [int(mask[i])] if mask is not None else row)
     return out.getvalue().encode("utf-8")

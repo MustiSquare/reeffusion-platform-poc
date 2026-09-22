@@ -108,6 +108,7 @@ def _metadata_for_points(
         "horizontal_units": "degrees" if geographic else comments.get("xy_units", "meters"),
         "vertical_units": z_unit,
         "vertical_convention": vertical_convention,
+        "vertical_datum": comments.get("vertical_datum"),
         "bounds": bounds,
         "centroid": {
             "x": float(np.mean(pts[:, 0])),
@@ -214,9 +215,11 @@ def grid_from_points(
     if pts.ndim != 2 or pts.shape[1] != 3:
         raise ValueError("Bathymetry points must be an iterable of x/y/z triples")
 
+    if not np.isfinite(pts).all():
+        raise ValueError("Bathymetry coordinates must be finite")
     xs = np.unique(pts[:, 0])
     ys = np.unique(pts[:, 1])
-    if len(xs) * len(ys) == len(pts):
+    if len(xs) * len(ys) == len(pts) and not (comments or {}).get("support_radius_m"):
         x_grid, y_grid = np.meshgrid(xs, ys)
         z_grid = np.full_like(x_grid, np.nan, dtype=float)
         x_index = {v: i for i, v in enumerate(xs)}
@@ -243,23 +246,32 @@ def grid_from_points(
         )
 
     side = interpolation_grid_size or min(128, max(2, int(np.sqrt(len(pts)))))
+    if (comments or {}).get("support_radius_m"):
+        side = min(128, max(side, int(np.ceil(max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1])))) + 1))
     x_grid, y_grid, z_grid, interpolation = _interpolate_idw(pts, side)
+    metadata = _metadata_for_points(
+        pts, source, False, z_grid.shape, comments=comments, interpolation=interpolation,
+        coordinate_columns=coordinate_columns, vertical_convention=vertical_convention, z_unit=z_unit,
+    )
+    if comments and "support_radius_m" in comments:
+        radius = float(comments["support_radius_m"])
+        if not np.isfinite(radius) or radius <= 0 or radius > 20:
+            raise ValueError("support_radius_m must be between 0 and 20 metres")
+        targets = np.column_stack([x_grid.ravel(), y_grid.ravel()])
+        supported = np.zeros(len(targets), dtype=bool)
+        for start in range(0, len(targets), 256):
+            distances = np.sum((targets[start:start+256, None, :] - pts[None, :, :2])**2, axis=2)
+            supported[start:start+256] = np.min(distances, axis=1) <= radius**2
+        metadata["support_mask"] = supported.reshape(z_grid.shape).tolist()
+        metadata["support_radius_m"] = radius
+        metadata["supported_fraction"] = float(supported.mean())
+        metadata["metrics_note"] = "Legacy grid metrics include interpolation; not valid as measured-coverage metrics."
     return BathymetryGrid(
         x=x_grid,
         y=y_grid,
         z=z_grid,
         source=source,
-        metadata=_metadata_for_points(
-            pts,
-            source,
-            False,
-            z_grid.shape,
-            comments=comments,
-            interpolation=interpolation,
-            coordinate_columns=coordinate_columns,
-            vertical_convention=vertical_convention,
-            z_unit=z_unit,
-        ),
+        metadata=metadata,
     )
 
 

@@ -1,1 +1,11 @@
+<script>
+  // Apply the stored theme before first paint so the page never flashes
+  // the wrong background while the React bundle loads.
+  try {
+    var t = localStorage.getItem('reef-theme');
+    document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+  } catch (e) {
+    document.documentElement.dataset.theme = 'dark';
+  }
+</script>
 <div id="root"></div><script type="module" src="/src/main.tsx"></script>

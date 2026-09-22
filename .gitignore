@@ -217,3 +217,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 .vscode/PythonImportHelper-v2-Completion.json
+.npm-cache/
+frontend/node_modules/

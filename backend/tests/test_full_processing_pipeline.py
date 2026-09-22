@@ -3,7 +3,9 @@ from app.processing import pipeline
 from app.testing.fixtures import FakeObjectStore, create_raw_fixture_dataset, in_memory_session
 
 
-def test_full_processing_pipeline_with_uploaded_bathymetry(monkeypatch):
+def test_full_processing_pipeline_with_uploaded_bathymetry(monkeypatch, tmp_path):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "processed_export_dir", str(tmp_path))
     db = in_memory_session()
     object_store = FakeObjectStore()
     monkeypatch.setattr(pipeline, "store", lambda: object_store)
