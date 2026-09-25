@@ -50,6 +50,10 @@ import {
   assetUrl,
 } from "./api/client";
 import "./styles.css";
+import {SeaLevelControls, SeaLevelReadout, SoundingSurfaces, Sounding, SeaLevels, referenceHeights, nearestSounding, useSeaLevels, referenceHeight} from "./survey/SeaLevels";
+import ArchiveExplorer from "./survey/ArchiveExplorer";
+import SurveyArchive from "./survey/SurveyArchive";
+import { clearOverwriteApprovals } from "./api/confirm";
 import LiveSurvey from "./survey/LiveSurvey";
 import { viewerFraming } from "./survey/viewerFraming";
 
@@ -96,6 +100,7 @@ type Dataset = {
   file_count?: number;
   metrics?: any;
   processing_version?: string;
+  raw_dataset_id?: string;
   location?: string;
   survey_date?: string;
   metadata?: any;
@@ -135,6 +140,7 @@ type ViewerProps = {
   dataset?: Dataset;
   annotationMode?: boolean;
   onAnnotationCreated?: () => void;
+  referenceKey?: string;
 };
 
 function AssetBrowser({ datasetId }: { datasetId?: string }) {
@@ -602,6 +608,9 @@ function ReefScene({
   textureUrl,
   glbScene,
   theme,
+  soundingPoints,
+  seaLevels,
+  picked,
 }: {
   points: ReefPoint[];
   annotations: AnnotationItem[];
@@ -619,6 +628,9 @@ function ReefScene({
   textureUrl?: string;
   glbScene?: THREE.Object3D | null;
   theme: Theme;
+  soundingPoints:Sounding[];
+  seaLevels:SeaLevels;
+  picked:ReefPoint|null;
 }) {
   const scene = sceneColors[theme];
   const pointGeometry = useMemo(
@@ -669,8 +681,16 @@ function ReefScene({
     if (geometryBox) box.union(geometryBox);
     return box;
   }, [meshGeometry, transformedGlbScene, zScale]);
+  const referenceBounds=useMemo(()=>{
+    const box=sceneBounds.clone();
+    for(const p of soundingPoints){const h=referenceHeights(referenceHeight(seaLevels.offset));
+      if(seaLevels.showSurface)box.expandByPoint(new THREE.Vector3(p[0],h.blue*zScale,p[1]));
+      if(seaLevels.showMsl&&h.yellow!==null)box.expandByPoint(new THREE.Vector3(p[0],h.yellow*zScale,p[1]));
+    }
+    return box;
+  },[sceneBounds,soundingPoints,seaLevels,zScale]);
   const { camera, size: viewport } = useThree();
-  const framing = useMemo(() => viewerFraming(sceneBounds, viewport.width / Math.max(1, viewport.height)), [sceneBounds, viewport.width, viewport.height]);
+  const framing = useMemo(() => viewerFraming(referenceBounds, viewport.width / Math.max(1, viewport.height)), [referenceBounds, viewport.width, viewport.height]);
   const center = framing.center;
   const [viewSignal, setViewSignal] = useState(0);
   useEffect(() => {
@@ -759,6 +779,7 @@ function ReefScene({
           onSelect={onSelectAnnotation}
         />
       )}
+      {soundingPoints.length>0&&<SoundingSurfaces points={soundingPoints} levels={seaLevels} zScale={zScale} picked={picked}/>}
       {layers.grid && (
         <gridHelper
           args={[framing.gridSize, 20, scene.grid, scene.gridSub]}
@@ -773,8 +794,21 @@ function ProfessionalViewer({
   dataset,
   annotationMode = false,
   onAnnotationCreated,
+  referenceKey,
 }: ViewerProps) {
   const theme = useTheme();
+  const [seaLevels,setSeaLevels]=useSeaLevels(referenceKey||dataset?.id||'unselected');
+  const [soundingPoints,setSoundingPoints]=useState<Sounding[]>([]);
+  const [soundingStatus,setSoundingStatus]=useState('');
+  useEffect(()=>{
+    setSoundingPoints([]);if(!dataset)return;
+    let cancelled=false;setSoundingStatus('Loading recorded sonar distances...');
+    getJson(`/api/survey/processed/${dataset.id}/sounding-references`).then(data=>{
+      if(cancelled)return;const rows=(data.points||[]).filter((p:any)=>Array.isArray(p)&&p.length===4&&p.every(Number.isFinite)&&p[3]>0);
+      setSoundingPoints(rows);setSoundingStatus(rows.length?'Recorded vertical sonar distances.':data.note||'No sounding references available.');
+    }).catch(e=>{if(!cancelled)setSoundingStatus(`Sounding references unavailable: ${e.message}`);});
+    return()=>{cancelled=true;};
+  },[dataset?.id]);
   const [points, setPoints] = useState<ReefPoint[]>([]);
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
   const [textureUrl, setTextureUrl] = useState<string>("");
@@ -1154,6 +1188,9 @@ function ProfessionalViewer({
                 textureUrl={textureUrl}
                 glbScene={glbScene}
                 theme={theme}
+                soundingPoints={soundingPoints}
+                seaLevels={seaLevels}
+                picked={picked}
               />
             )}
           </Canvas>
@@ -1175,6 +1212,8 @@ function ProfessionalViewer({
           </div>
         </div>
         <aside className="viewerSidePanel right">
+          <SeaLevelControls levels={seaLevels} update={setSeaLevels} status={soundingStatus} count={soundingPoints.length}/>
+          <SeaLevelReadout levels={seaLevels} point={nearestSounding(soundingPoints,picked)}/>
           <h3>Selection</h3>
           {mode === "annotate" && annotationShape === "surface" ? (
             <div className="infoBox">
@@ -1576,19 +1615,54 @@ function InteractiveSurveyTable({
 export function App() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [tab, setTab] = useState(tabs[0]);
+  const processedView=useRef<HTMLDivElement>(null);
+  const [archiveSurvey,setArchiveSurvey]=useState<any>(null);
+  const [archiveSelection,setArchiveSelection]=useState<string[]>([]);
+  const [archiveError,setArchiveError]=useState('');
+  const [archiveLoading,setArchiveLoading]=useState(false);
+  const archiveRequest=useRef(0);
   const [surveyOpened, setSurveyOpened] = useState(false);
   const [raw, setRaw] = useState<Dataset[]>([]);
   const [proc, setProc] = useState<Dataset[]>([]);
   const [selected, setSelected] = useState<Dataset | undefined>();
+  const [processedDataset,setProcessedDataset]=useState<Dataset|undefined>();
   const [job, setJob] = useState<any>();
   const refresh = () => {
     getJson("/api/datasets/raw").then(setRaw);
     getJson("/api/datasets/processed").then((d) => {
       setProc(d);
+      setProcessedDataset(current=>current&&d.some((p:Dataset)=>p.id===current.id&&p.status==='completed')?current:undefined);
       setSelected(current => current || d[0]);
     });
   };
+  async function loadArchive(id:string){
+    const request=++archiveRequest.current;setArchiveLoading(true);setArchiveError('');
+    try {const data=await getJson(`/api/survey/archive/${id}`);if(request===archiveRequest.current){setArchiveSurvey(data);setArchiveSelection([]);}return data;}
+    catch(e:any){if(request===archiveRequest.current){setArchiveSurvey(null);setArchiveError(e.message);}throw e;}
+    finally {if(request===archiveRequest.current)setArchiveLoading(false);}
+  }
+  async function openProcessed(id:string, surveyId?:string){
+    setProcessedDataset(undefined);
+    const dataset=await getJson(`/api/datasets/processed/${id}`);
+    if(dataset.status!=='completed')throw new Error('Process this survey data before opening it in the processed viewer.');
+    setProcessedDataset(dataset);setSelected(dataset);setTab("Processed Data Viewer");
+    try {
+      if(!surveyId){const index=await getJson('/api/survey/archive');surveyId=index.find((g:any)=>g.processed.some((p:any)=>p.id===id))?.id;}
+      if(surveyId){if(archiveSurvey?.id!==surveyId)await loadArchive(surveyId);setArchiveSelection(dataset.viewer_config?.source_dataset_ids||[id]);}
+      else {setArchiveSurvey(null);setArchiveSelection([]);}
+    }catch(e:any){setArchiveError(e.message);}
+  }
+  async function openArea(ids:string[]){
+    const result=await postJson('/api/survey/combined-area',{dataset_ids:ids});
+    await openProcessed(result.dataset_id,archiveSurvey?.id);setArchiveSelection(ids);refresh();
+  }
+  async function openSurvey(id:string){
+    setTab('Live Survey');try{await loadArchive(id);}catch{/* visible error */}
+  }
   useEffect(refresh, []);
+  useEffect(()=>{
+    if(tab==='Processed Data Viewer')processedView.current?.scrollIntoView?.({block:'start',behavior:'instant'});
+  },[tab,selected?.id]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try {
@@ -1643,7 +1717,15 @@ export function App() {
           {tabs.map((t, i) => (
             <button
               className={tab === t ? "active" : ""}
-              onClick={() => { setTab(t); if (t === "Live Survey") setSurveyOpened(true); }}
+              onClick={() => {
+                setTab(t);
+                if (t === "Live Survey"&&!archiveSurvey) setSurveyOpened(true);
+                if(t === 'Processed Data Viewer'){
+                  const target=selected?proc.find(p=>p.status==='completed'&&(p.id===selected.id||p.raw_dataset_id===selected.id)):proc.find(p=>p.status==='completed');
+                  if(target)openProcessed(target.id).catch(e=>setArchiveError(e.message));
+                  else {setProcessedDataset(undefined);setArchiveSurvey(null);setArchiveError('Process this survey data before opening the processed viewer.');}
+                }
+              }}
               key={t}
             >
               {
@@ -1662,45 +1744,50 @@ export function App() {
           ))}
         </nav>
         <section className="card">
-          {surveyOpened && <div hidden={tab !== "Live Survey"}>
-            <LiveSurvey visible={tab === "Live Survey"} refresh={refresh} openArea={async (ids) => {
-              const result = await postJson('/api/survey/combined-area', {dataset_ids:ids});
-              const dataset = await getJson(`/api/datasets/processed/${result.dataset_id}`);
-              setSelected(dataset);
-              setTab("Processed Data Viewer");
-              refresh();
-            }} openProcessed={async (id) => {
-              const dataset = await getJson(`/api/datasets/processed/${id}`);
-              setSelected(dataset);
-              setTab("Processed Data Viewer");
-              refresh();
-            }} />
+          {archiveError&&<p role="alert">{archiveError}</p>}
+          {archiveLoading&&<p>Loading archived survey?</p>}
+          {tab==='Live Survey'&&<div className="survey-controls">
+            <button onClick={()=>setTab('Data Archive')}>Access previous surveys</button>
+            {archiveSurvey&&<button onClick={()=>{archiveRequest.current++;setArchiveSurvey(null);setArchiveSelection([]);setSurveyOpened(true);}}>Return to survey playback</button>}
           </div>}
+          {surveyOpened && <div hidden={tab !== "Live Survey"||!!archiveSurvey||archiveLoading}>
+            <LiveSurvey archived={!!archiveSurvey||archiveLoading} visible={tab === "Live Survey"&&!archiveSurvey&&!archiveLoading} refresh={refresh} openArea={openArea} openProcessed={openProcessed}/>
+          </div>}
+          {tab==='Live Survey'&&archiveSurvey&&!archiveLoading&&<ArchiveExplorer survey={archiveSurvey} selected={archiveSelection} setSelected={setArchiveSelection} open={(id:string)=>openProcessed(id,archiveSurvey.id)} openArea={openArea}/>}
           {tab === "Raw Data Upload" && <UploadTab refresh={refresh} />}{" "}
-          {tab === "Raw Data Viewer" && <RawViewer raw={raw} />}{" "}
+          {tab === "Raw Data Viewer" && <RawViewer raw={raw} initial={selected} />}{" "}
           {tab === "Raw Data Processing" && (
             <Processing raw={raw} job={job} setJob={setJob} />
           )}{" "}
           {tab === "Processed Data Viewer" && (
-            <>
+            <div ref={processedView}>
               <div className="survey-controls">
-                <button onClick={() => { setSurveyOpened(true); setTab("Live Survey"); }}>Back to survey map</button>
+                <button onClick={() => { if(!archiveSurvey)setSurveyOpened(true); setTab("Live Survey"); }}>Back to survey map</button>
                 <button onClick={() => setTab("Data Archive")}>Browse other datasets</button>
               </div>
-              <ProfessionalViewer dataset={selected || proc[0]} />
-            </>
+              {processedDataset&&archiveSurvey&&!archiveLoading&&<details className="viewer-cell-navigator"><summary>Browse survey cells</summary><ArchiveExplorer compact survey={archiveSurvey} selected={archiveSelection} setSelected={setArchiveSelection} open={(id:string)=>openProcessed(id,archiveSurvey.id)} fullMap={()=>setTab('Live Survey')}/></details>}
+              {processedDataset?.status==='completed'?<ProfessionalViewer dataset={processedDataset} referenceKey={archiveSurvey?.id}/>:<p>Process survey data, then open a completed cell to view its reef.</p>}
+            </div>
           )}{" "}
           {tab === "Data Archive" && (
-            <Archive
+            <SurveyArchive
+              refresh={refresh}
               raw={raw}
               proc={proc}
-              open={(d: Dataset) => {
-                  setSelected(d);
-                setTab("Processed Data Viewer");
+              openSurvey={openSurvey}
+              onSurveyDeleted={(result:any)=>{
+                try{
+                  if(result.replay_ids?.includes(localStorage.getItem('reef-survey-replay'))){setSurveyOpened(false);localStorage.removeItem('reef-survey-replay');}
+                  for(const key of Object.keys(localStorage))if(result.replay_ids?.some((id:string)=>key.startsWith(`reef-survey-jobs:${id}:`)||key.startsWith(`reef-survey-fresh:${id}:`)))localStorage.removeItem(key);
+                }catch{/* Storage unavailable */}
+                if(archiveSurvey?.id===result.survey_id){setArchiveSurvey(null);setArchiveSelection([]);}
+                if(result.processed_ids.includes(processedDataset?.id))setProcessedDataset(undefined);
+                if([...result.raw_ids,...result.processed_ids].includes(selected?.id))setSelected(undefined);
               }}
-              openRaw={(d: Dataset) => {
-                setSelected(d);
-                setTab("Raw Data Viewer");
+              open={(d: Dataset,surveyId:string) => {openProcessed(d.id,surveyId).catch(e=>setArchiveError(e.message));}}
+              openRaw={async(d: Dataset) => {
+                try{setSelected(await getJson(`/api/datasets/raw/${d.id}`));setTab("Raw Data Viewer");}
+                catch(e:any){setArchiveError(e.message);}
               }}
             />
           )}{" "}
@@ -1734,9 +1821,10 @@ function UploadTab({ refresh }: any) {
     setUploading(true);
     setMsg("");
     try {
+      clearOverwriteApprovals();
       const r = await uploadFiles(files, metadata);
       setMsg(
-        `Uploaded ${r.file_count} files as ${r.name}${r.warnings?.length ? ` · ${r.warnings.join(" · ")}` : ""}`,
+        `${r.existing ? "Reused existing dataset" : "Uploaded " + r.file_count + " files as"} ${r.name}${r.warnings?.length ? ` · ${r.warnings.join(" · ")}` : ""}`,
       );
       refresh();
     } catch (e: any) {
@@ -1854,8 +1942,8 @@ function UploadTab({ refresh }: any) {
     </>
   );
 }
-function RawViewer({ raw }: any) {
-  const [selected, setSelected] = useState<Dataset | undefined>();
+function RawViewer({ raw, initial }: any) {
+  const [selected, setSelected] = useState<Dataset | undefined>(raw.find((d:Dataset)=>d.id===initial?.id));
   return (
     <>
       <InteractiveSurveyTable
@@ -1884,7 +1972,7 @@ function Processing({ raw, job, setJob }: any) {
   const [selected, setSelected] = useState<Dataset | undefined>();
   const start = (d: Dataset) => {
     setSelected(d);
-    postJson(`/api/jobs/process/${d.id}`).then(setJob);
+    postJson(`/api/jobs/process/${d.id}`).then(setJob).catch((e)=>setJob({status:"cancelled",error:e.message}));
   };
   const pipelineSteps = [
     ["queued", "Queued"],
@@ -2627,32 +2715,5 @@ function AiAgents({ proc }: any) {
   );
 }
 
-function Archive({ raw, proc, open, openRaw }: any) {
-  return (
-    <>
-      <h2>Data Archive</h2>
-      <p>
-        Archive rows are grouped by lifecycle state. Click any Reef Survey row
-        to expand details, then use Open to navigate to the matching viewer.
-      </p>
-      <InteractiveSurveyTable
-        title="Raw Survey Archive"
-        subtitle="Uploaded and generated raw acquisition packages."
-        data={raw}
-        type="archiveRaw"
-        onSelect={() => {}}
-        onOpen={openRaw}
-      />
-      <InteractiveSurveyTable
-        title="Processed Survey Archive"
-        subtitle="Processed mesh, point-cloud and viewer-ready reef model outputs."
-        data={proc}
-        type="archiveProcessed"
-        onSelect={() => {}}
-        onOpen={open}
-      />
-    </>
-  );
-}
 const rootElement = document.getElementById("root");
 if (rootElement) createRoot(rootElement).render(<App />);

@@ -21,18 +21,18 @@ def packet(kind, payload):
     return header + payload + struct.pack("<H", (sum(header)+sum(payload)) & 0xffff)
 
 
-def recording(version=1, nav_age=0):
+def recording(version=1, nav_age=0, altitude=None, angle=0, mount_z=0):
     config = {"timestamp": "2026-07-10T20:00:00Z", "session_devices": [
-        {"product_id": "os3d45016", "options": {"components": [{"mount_fsd": {}}]}}]}
+        {"product_id": "os3d45016", "options": {"components": [{"mount_fsd": {"z_mm":mount_z*1000}}]}}]}
     raw = packet(10, config)
     raw += packet(150, {"message": {"type": "ATTITUDE", "time_boot_ms": 1000, "roll": 0, "pitch": 0, "yaw": 0}})
-    raw += packet(150, {"message": {"type": "GLOBAL_POSITION_INT", "time_boot_ms": 1000, "lat": 201800000, "lon": -1559000000, "hdg": 9000}})
+    raw += packet(150, {"message": {"type": "GLOBAL_POSITION_INT", "time_boot_ms": 1000, "lat": 201800000, "lon": -1559000000, "hdg": 9000, "alt":altitude, "relative_alt":987650}})
     point = bytearray(80)
     struct.pack_into("<IfH", point, 0, 1, 1500., 1)
     struct.pack_into("<Q", point, 16, 1783713600000 + nav_age*1000)
     point[28] = version
     struct.pack_into("<f", point, 36, 10.)
-    point.extend(struct.pack("<fffB3x", 0., 0.02, 20., 1))
+    point.extend(struct.pack("<fffB3x", angle, 0.02, 20., 1))
     raw += packet(3104, point)
     end = bytearray(80)
     struct.pack_into("<fff", end, 12, 0., 0., 1.)
@@ -96,3 +96,51 @@ def test_sparse_mesh_preserves_unsurveyed_gap_and_csv_mask():
     csv = point_cloud_to_xyz_csv(cloud)
     assert b"x,y,z,supported" in csv
     assert b",0\r\n" in csv
+
+
+def test_recorded_msl_uses_navigation_altitude_not_home_relative_height():
+    from app.services.sea_levels import block_reference
+    replay=decode_sonar(recording(altitude=12340),'test.svlog')
+    point=replay['frames'][0]['points'][0]
+    ref=block_reference(replay,math.floor(point[0]/50),math.floor(point[1]/50),50,0)
+    assert ref['vehicle_altitude_msl_m']==pytest.approx(12.34)
+    assert ref['msl_z_m'] is None
+    assert ref['sea_surface_z_m'] is None
+    assert ref['coverage']==1
+    assert point[2]==-15  # Preserve vehicle-relative geometry.
+
+
+def test_references_follow_tile_cursor_and_sounding_weights():
+    from app.services.sea_levels import block_reference,summarize_references
+    replay={'frames':[
+        {'t':0,'points':[[1,1,-10,0,0,2]],'vertical_samples':[[1,1,20,2,10,10],[51,1,999,1,999,999]]},
+        {'t':10,'points':[[1,1,-10,0,0,1]],'vertical_samples':[[1,1,16,1,16,16]]}]}
+    first=block_reference(replay,0,0,50,0)
+    assert first['vehicle_altitude_msl_m']==10
+    complete=block_reference(replay,0,0,50,10)
+    assert complete['vehicle_altitude_msl_m']==12
+    assert complete['vehicle_altitude_msl_range_m']==[10,16]
+    combined=summarize_references([first,complete],5)
+    assert combined['vehicle_altitude_msl_m']==pytest.approx(11.2)
+    assert block_reference({'frames':[{'t':0,'points':[[1,1,-10,0,0,1]]}]},0,0,50,0) is None
+
+
+def test_sounding_altitude_is_vertical_not_slant_range_or_gps_height():
+    from app.services.sea_levels import sounding_reference
+    replay=decode_sonar(recording(altitude=999000,angle=math.pi/3,mount_z=.2),'test.svlog')
+    p=replay['frames'][0]['points'][0]
+    ref=sounding_reference(replay,math.floor(p[0]/50),math.floor(p[1]/50),50,0)
+    x,y,z,alt=ref['points'][0]
+    assert alt==pytest.approx(7.5,abs=.001)  # 15 m slant range at 60 degrees.
+    assert z==pytest.approx(-7.7,abs=.001)
+    assert z+alt==pytest.approx(-.2,abs=.001)
+    assert z+alt+.2==pytest.approx(0,abs=.001)  # Known 20 cm sonar-to-waterline offset.
+    assert ref['msl_offset_m'] is None
+
+
+def test_sounding_reference_averages_measurements_and_respects_cursor():
+    from app.services.sea_levels import sounding_reference
+    replay={'frames':[{'t':0,'sounding_altitudes':[[1,1,-20,18,2],[51,1,-90,20,1]]},
+                      {'t':10,'sounding_altitudes':[[1,1,-23,21,1]]}]}
+    assert sounding_reference(replay,0,0,50,0)['points']==[[1,1,-20,18]]
+    assert sounding_reference(replay,0,0,50,10)['points']==[[1,1,-21,19]]

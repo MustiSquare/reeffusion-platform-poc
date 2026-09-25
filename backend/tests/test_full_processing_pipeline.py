@@ -11,6 +11,10 @@ def test_full_processing_pipeline_with_uploaded_bathymetry(monkeypatch, tmp_path
     monkeypatch.setattr(pipeline, "store", lambda: object_store)
 
     raw = create_raw_fixture_dataset(db, object_store)
+    references=b'{"version":2,"points":[[0,0,-20,18]],"msl_offset_m":null}'
+    object_store.put_bytes(f'raw/{raw.id}/sounding_references.json',references,'application/json')
+    db.add(RawAsset(dataset_id=raw.id,file_name='sounding_references.json',asset_type='sounding_references',object_key=f'raw/{raw.id}/sounding_references.json',media_type='application/json'))
+    db.commit()
     job = ProcessingJob(raw_dataset_id=raw.id)
     db.add(job)
     db.commit()
@@ -47,7 +51,11 @@ def test_full_processing_pipeline_with_uploaded_bathymetry(monkeypatch, tmp_path
         "mesh_obj",
         "coral_texture",
         "texture_mapping",
+        "sounding_references",
     }
+    reference_asset=next(a for a in assets if a.asset_type=='sounding_references')
+    assert object_store.get_bytes(reference_asset.object_key)==references
+    assert next(tmp_path.glob('*/processed/*/sounding_references.json')).read_bytes()==references
     assert object_store.objects[f"processed/{processed.id}/mesh.glb"][:4] == b"glTF"
     assert object_store.objects[f"processed/{processed.id}/mesh.ply"].startswith(b"ply")
     assert b"v " in object_store.objects[f"processed/{processed.id}/mesh.obj"]
@@ -75,3 +83,42 @@ def test_full_processing_pipeline_with_uploaded_bathymetry(monkeypatch, tmp_path
     assert mesh_step["output"]["texture_mapping"]["texture_file"] == "coral_texture.jpg"
     metrics_step = next(step for step in step_details if step["name"] == pipeline.STEP_METRICS)
     assert metrics_step["output"]["quality"]["scientific_validity"]["is_scientifically_valid"] is False
+
+
+def test_reprocessing_replaces_assets_preserves_id_annotations_and_survives_failure(monkeypatch, tmp_path):
+    import pytest
+    from app.core.config import settings
+    from app.models.tables import Annotation
+    monkeypatch.setattr(settings, "processed_export_dir", str(tmp_path))
+    db, storage = in_memory_session(), FakeObjectStore()
+    monkeypatch.setattr(pipeline, "store", lambda: storage)
+    raw = create_raw_fixture_dataset(db, storage)
+    def run():
+        job = ProcessingJob(raw_dataset_id=raw.id)
+        db.add(job); db.commit()
+        pipeline.run_processing_pipeline(db,job.id)
+        return job
+    first = run()
+    proc = db.get(ProcessedDataset,first.result_processed_dataset_id)
+    original_id = proc.id
+    original_assets = {a.asset_type:a.id for a in proc.assets}
+    old_keys = [a.object_key for a in proc.assets]
+    db.add(Annotation(processed_dataset_id=proc.id,label="coral",geometry_json={"type":"Point","coordinates":[0,0,-1]}));db.commit()
+    second = run()
+    assert second.result_processed_dataset_id == original_id
+    assert db.query(ProcessedDataset).count() == 1
+    assert {a.asset_type:a.id for a in proc.assets} == original_assets
+    assert all(key not in storage.objects for key in old_keys)
+    assert db.query(Annotation).count() == 1
+    assert len(list(tmp_path.glob("*/processed/*"))) == 1
+    good_keys = [a.object_key for a in proc.assets]
+    put = storage.put_bytes
+    def failing_put(key, data, content_type=None):
+        if key.endswith("mesh.glb"): raise RuntimeError("storage unavailable")
+        return put(key,data,content_type)
+    monkeypatch.setattr(storage,"put_bytes",failing_put)
+    with pytest.raises(RuntimeError,match="storage unavailable"): run()
+    db.refresh(proc)
+    assert [a.object_key for a in proc.assets] == good_keys
+    assert all(key in storage.objects for key in good_keys)
+    assert db.query(ProcessedDataset).count() == 1

@@ -10,13 +10,15 @@ from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
 import httpx
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, Form, Header
 from pydantic import BaseModel, Field
 from pyproj import Transformer
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
+from app.services.sea_levels import block_reference, sounding_reference, processed_sounding_reference
+from app.services.overwrite import require_overwrite, survey_date_key, previous_processing
 from app.models.tables import RawDataset, RawAsset, SurveyLocation, ProcessingJob, ProcessedDataset
 from app.services.processed_export import record_export
 from app.services.auth import require_role
@@ -38,7 +40,7 @@ def completed_results(db: Session = Depends(get_db)):
             continue
         export = (dataset.viewer_config_json or {}).get("local_export", {"status": "not_saved"})
         results.append({"id": dataset.id, "name": dataset.name, "completed_at": str(dataset.created_at),
-                        "block": (raw.metadata_json or {}).get("block") if raw else None,
+                        "block": (dataset.viewer_config_json or {}).get("block_snapshot") or ((raw.metadata_json or {}).get("block") if raw else None),
                         "replay_id": (raw.metadata_json or {}).get("replay_id") if raw else None,
                         "export": export,
                         "files": [{"name": a.file_name, "asset_type": a.asset_type, "url": f"/api/assets/{a.id}"} for a in dataset.assets]})
@@ -60,41 +62,81 @@ def retry_export(dataset_id: UUID, db: Session = Depends(get_db), _principal=Dep
 @lru_cache(maxsize=3)
 def load_replay(session_id: str):
     try:
-        return json.loads(store().get_bytes(f"replays/{session_id}/replay.json"))
+        replay=json.loads(store().get_bytes(f"replays/{session_id}/replay.json"))
+        if replay.get("vertical_reference_version") != 2:
+            for extension in ("svlz","svlog"):
+                try:
+                    source=store().get_bytes(f"replays/{session_id}/source.{extension}")
+                except ClientError as exc:
+                    if exc.response["Error"]["Code"] in {"NoSuchKey","404"}:continue
+                    raise
+                decoded=decode_sonar(source,replay.get("source_name",replay["name"]))
+                by_time={f['t']:f for f in decoded['frames']}
+                for frame in replay['frames']:
+                    frame['vertical_samples']=by_time.get(frame['t'],{}).get('vertical_samples',[])
+                    frame['sounding_altitudes']=by_time.get(frame['t'],{}).get('sounding_altitudes',[])
+                replay['vertical_reference_version']=2
+                break
+        return replay
     except ClientError as exc:
         if exc.response["Error"]["Code"] in {"NoSuchKey", "404"}:
             raise HTTPException(404, "Replay not found") from exc
         raise
 
 
-def save_replay(data, name):
+def save_replay(data, name, db=None, survey_name=None, overwrite=False):
     try:
         replay = decode_sonar(data, name)
     except (ValueError, KeyError, TypeError, OverflowError) as exc:
         raise HTTPException(422, f"Cannot decode recording: {exc}") from exc
-    session_id = str(uuid4())
+    digest = hashlib.sha256(data).hexdigest()
+    date_key = survey_date_key(replay["started_at"])
+    session_id = str(uuid5(NAMESPACE_URL, f"reef-replay:{digest}:{date_key}"))
+    if db is not None:
+        for raw in db.query(RawDataset).filter_by(source="survey_replay").order_by(RawDataset.created_at.asc()).all():
+            if (raw.metadata_json or {}).get("source_sha256") == digest and survey_date_key(raw.acquisition_started_at) == date_key:
+                session_id = raw.metadata_json["replay_id"]
+                break
+    if db is not None:
+        previous = [r.id for r in db.query(RawDataset).filter_by(source="survey_replay").all()
+                    if (r.metadata_json or {}).get("replay_id") == session_id]
+        require_overwrite(db, previous, session_id, overwrite is True)
+        for raw_id in previous:
+            raw = db.get(RawDataset, raw_id)
+            raw.metadata_json = {**raw.metadata_json, "survey_name":(survey_name or name).strip() or name}
+        db.commit()
+    replay["source_name"] = name
+    replay["name"] = (survey_name or name).strip() or name
     replay["id"] = session_id
-    replay["source_sha256"] = hashlib.sha256(data).hexdigest()
+    replay["source_sha256"] = digest
     s3 = store()
     extension = "svlz" if data[:2] == b"\x1f\x8b" else "svlog"
     s3.put_bytes(f"replays/{session_id}/source.{extension}", data, "application/octet-stream")
     s3.put_bytes(f"replays/{session_id}/replay.json", json.dumps(replay, separators=(",", ":")).encode(), "application/json")
+    getattr(load_replay,"cache_clear",lambda:None)()
     return replay
 
 
 @router.post("/replays")
-async def upload_replay(file: UploadFile = File(...), _principal=Depends(require_role("editor"))):
+async def upload_replay(file: UploadFile = File(...), db: Session = Depends(get_db), survey_name: str = Form(default=""), overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite"), _principal=Depends(require_role("editor"))):
     if Path(file.filename or "").suffix.lower() not in {".svlz", ".svlog"}:
         raise HTTPException(422, "Choose a SonarView .svlz or .svlog recording")
     data = await file.read(100 * 1024 * 1024 + 1)
     if len(data) > 100 * 1024 * 1024:
         raise HTTPException(413, "Recording exceeds 100 MB; split it in SonarView")
-    return await run_in_threadpool(save_replay, data, Path(file.filename).name)
+    return await run_in_threadpool(save_replay, data, Path(file.filename).name, db, survey_name, overwrite)
 
 
 @router.get("/replays/{session_id}")
 def get_replay(session_id: UUID):
     return load_replay(str(session_id))
+
+
+@router.get("/replays/{session_id}/processing-history")
+def replay_processing_history(session_id: UUID, db: Session = Depends(get_db)):
+    ids = [raw.id for raw in db.query(RawDataset).filter_by(source="survey_replay").all()
+           if (raw.metadata_json or {}).get("replay_id") == str(session_id)]
+    return {"processed_at":previous_processing(db,ids),"confirmation_key":str(session_id)}
 
 
 @router.get("/replays/{session_id}/processed-blocks")
@@ -110,7 +152,7 @@ def processed_blocks(session_id: UUID, db: Session = Depends(get_db)):
         meta = raw.metadata_json or {}
         if meta.get("replay_id") != str(session_id):
             continue
-        block = meta.get("block", {})
+        block = (processed.viewer_config_json or {}).get("block_snapshot") or meta.get("block", {})
         if not all(k in block for k in ("column", "row", "size", "until")):
             continue
         key = f"{block['size']}:{block['column']}:{block['row']}"
@@ -151,21 +193,62 @@ def export_block(session_id: UUID, body: BlockRequest):
 
 
 @router.post("/replays/{session_id}/blocks")
-def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get_db), _principal=Depends(require_role("editor"))):
+def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get_db), _principal=Depends(require_role("editor")), overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite")):
     replay, points, data = block_data(session_id, body)
+    reference = block_reference(replay,body.column,body.row,body.size,body.until)
+    sounding_data=sounding_reference(replay,body.column,body.row,body.size,body.until)
+    def save_soundings(raw):
+        key=f"raw/{raw.id}/sounding_references.json"
+        payload=json.dumps(sounding_data,separators=(',',':')).encode()
+        store().put_bytes(key,payload,'application/json')
+        asset=next((a for a in raw.assets if a.asset_type=='sounding_references'),None)
+        if asset is None:
+            asset=RawAsset(dataset_id=raw.id,asset_type='sounding_references');db.add(asset)
+        asset.file_name='sounding_references.json';asset.object_key=key;asset.media_type='application/json';asset.size_bytes=len(payload)
+        raw.coordinate_system_json={**(raw.coordinate_system_json or {}),'sounding_reference_version':2}
     if len(points) < 4 or len({p[0] for p in points}) < 2 or len({p[1] for p in points}) < 2:
         raise HTTPException(422, "Keep displaying/exporting these points; a surface needs at least four points spread across both axes")
     digest = hashlib.sha256(data).hexdigest()
-    dataset_id = str(uuid5(NAMESPACE_URL, f"{session_id}/{body.size}/{body.column}/{body.row}/{digest}"))
-    existing = db.get(RawDataset, dataset_id)
+    dataset_id = str(uuid5(NAMESPACE_URL, f"reef-cell/{session_id}/{body.size}/{body.column}/{body.row}"))
+    existing = db.query(RawDataset).filter_by(id=dataset_id).with_for_update().first()
+    if not existing:
+        for candidate in db.query(RawDataset).filter_by(source="survey_replay").order_by(RawDataset.created_at.desc()).all():
+            meta = candidate.metadata_json or {}
+            cell = meta.get("block", {})
+            if meta.get("replay_id") == str(session_id) and all(cell.get(k) == getattr(body,k) for k in ("size","column","row")):
+                existing = db.query(RawDataset).filter_by(id=candidate.id).with_for_update().one()
+                dataset_id = existing.id
+                break
     if existing:
+        require_overwrite(db, [existing.id], str(session_id), overwrite is True)
         job = db.query(ProcessingJob).filter_by(raw_dataset_id=dataset_id).order_by(ProcessingJob.created_at.desc()).first()
-        return {"dataset_id": dataset_id, "name": existing.name, "existing": True,
-                "job_id": job.id if job and job.status != "failed" else None}
+        same = (existing.metadata_json or {}).get("snapshot_sha256") == digest
+        if not same and (existing.metadata_json or {}).get("block") == body.model_dump():
+            same = True  # legacy snapshot without a saved checksum
+        same = same and (existing.coordinate_system_json or {}).get("sea_level_reference") == reference and (existing.coordinate_system_json or {}).get('sounding_reference_version')==2
+        if job and job.status not in ("completed", "failed"):
+            if not same:
+                raise HTTPException(409, "This cell is still processing; wait before replacing its input")
+            return {"dataset_id":dataset_id,"name":existing.name,"existing":True,"job_id":job.id}
+        if same:
+            return {"dataset_id":dataset_id,"name":existing.name,"existing":True,
+                    "job_id":job.id if job and job.status == "completed" and existing.status == "processed" else None}
+        metadata = {**(existing.metadata_json or {}), "block":body.model_dump(), "snapshot_sha256":digest,"point_count":len(points)}
+        asset = next(a for a in existing.assets if a.asset_type == "bathymetry")
+        store().put_bytes(asset.object_key, data, "text/csv")
+        asset.size_bytes = len(data)
+        asset.metadata_json = metadata
+        existing.metadata_json = metadata
+        existing.acquisition_ended_at = existing.acquisition_started_at + timedelta(seconds=body.until)
+        existing.coordinate_system_json={**(existing.coordinate_system_json or {}),"sea_level_reference":reference}
+        existing.status = "uploaded"
+        save_soundings(existing)
+        db.commit()
+        return {"dataset_id":dataset_id,"name":existing.name,"existing":True,"job_id":None}
     inverse = Transformer.from_crs(replay["crs"], 4326, always_xy=True)
     ox, oy = body.column * body.size, body.row * body.size
     lon, lat = inverse.transform(ox + body.size/2, oy + body.size/2)
-    metadata = {"source": "survey_replay", "replay_id": str(session_id), "block": body.model_dump(),
+    metadata = {"snapshot_sha256": digest, "survey_name": replay["name"], "source": "survey_replay", "replay_id": str(session_id), "block": body.model_dump(),
                 "projected_crs": replay["crs"], "projected_origin": [ox, oy],
                 "point_count": len(points), "source_sha256": replay["source_sha256"],
                 "warnings": replay["warnings"], "support_radius_m": 2,
@@ -173,6 +256,7 @@ def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get
     coordinate = {"crs": "LOCAL_GRID", "coordinate_system": "projected_or_local", "horizontal_units": "meters",
                   "vertical_units": "meters", "vertical_datum": replay["vertical_datum"],
                   "vertical_convention": "elevation_positive_up", "projected_crs": replay["crs"], "projected_origin": [ox, oy]}
+    coordinate["sea_level_reference"] = reference
     location = SurveyLocation(name=f"BlueBoat block {body.column}, {body.row}", latitude=lat, longitude=lon)
     db.add(location); db.flush()
     started = datetime.fromisoformat(replay["started_at"])
@@ -187,6 +271,7 @@ def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get
     store().put_bytes(key, data, "text/csv")
     db.add(RawAsset(dataset_id=dataset_id, file_name="bathymetry_xyz.csv", media_type="text/csv",
                     asset_type="bathymetry", object_key=key, size_bytes=len(data), metadata_json=metadata))
+    save_soundings(raw)
     db.commit()
     return {"dataset_id": dataset_id, "name": raw.name, "existing": False}
 
@@ -230,3 +315,63 @@ class CombinedAreaRequest(BaseModel):
 def combined_area(body: CombinedAreaRequest, db: Session = Depends(get_db), _principal=Depends(require_role("editor"))):
     from app.services.combined_survey import combine_datasets
     return combine_datasets(body.dataset_ids, db, store())
+
+
+@lru_cache(maxsize=3)
+def load_motion(session_id):
+    from app.services.survey_motion import extract_motion
+    replay = load_replay(session_id)
+    storage = store()
+    try:
+        data = storage.get_bytes(f"replays/{session_id}/source.svlz")
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] not in {"NoSuchKey","404"}: raise
+        data = storage.get_bytes(f"replays/{session_id}/source.svlog")
+    return extract_motion(data, replay["started_at"])
+
+
+@router.get("/replays/{session_id}/motion")
+def replay_motion(session_id: UUID):
+    return load_motion(str(session_id))
+
+
+@router.get("/archive")
+def archive_index(db: Session = Depends(get_db)):
+    from app.services.survey_archive import archive_surveys
+    return [{k:v for k,v in item.items() if k != "cells"} for item in archive_surveys(db)]
+
+
+def archived_survey(survey_key,db):
+    from app.services.survey_archive import archive_surveys
+    item=next((s for s in archive_surveys(db) if s["id"]==str(survey_key)),None)
+    if item is None:raise HTTPException(404,"Archived survey not found")
+    return item
+
+
+@router.get("/archive/{survey_key}")
+def archive_detail(survey_key: UUID,db: Session = Depends(get_db)):
+    summary=archived_survey(survey_key,db)
+    if not summary['processed_cells']:
+        raise HTTPException(409,"Process the survey data before opening its survey map")
+    return summary
+
+
+@router.delete("/archive/{survey_key}")
+def archive_delete(survey_key: UUID, db: Session = Depends(get_db), confirmed: bool = Query(False), _principal=Depends(require_role("admin"))):
+    if not confirmed:
+        raise HTTPException(400,"Confirm permanent deletion of all survey data before proceeding")
+    from app.services.dataset_cleanup import delete_archived_survey
+    return delete_archived_survey(db,archived_survey(survey_key,db),store())
+
+
+@router.get("/archive/{survey_key}/conditions")
+def archive_conditions(survey_key: UUID,db: Session = Depends(get_db)):
+    from app.services.survey_archive import aggregate_conditions
+    return aggregate_conditions(archived_survey(survey_key,db),historical_conditions)
+
+
+@router.get("/processed/{dataset_id}/sounding-references")
+def processed_references(dataset_id: UUID, db: Session = Depends(get_db)):
+    dataset=db.get(ProcessedDataset,str(dataset_id))
+    if not dataset or dataset.status!='completed':raise HTTPException(404,"Completed dataset not found")
+    return processed_sounding_reference(dataset,db,store(),load_replay)

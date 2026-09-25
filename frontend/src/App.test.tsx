@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { App } from './main';
+vi.mock('./api/client',()=>({getJson:vi.fn(async()=>[]),postJson:vi.fn(),putJson:vi.fn(),deleteJson:vi.fn(),uploadFiles:vi.fn(),assetUrl:(url:string)=>url}));
 
 describe('App theme toggle', () => {
   it('switches the document theme when the toggle is clicked and persists the choice', () => {

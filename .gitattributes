@@ -1,0 +1,3 @@
+# Keep text files on Unix line endings in both commits and working copies.
+# Auto detection leaves binary files unchanged.
+* text=auto eol=lf

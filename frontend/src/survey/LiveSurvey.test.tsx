@@ -19,7 +19,7 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.useRealTimers();vi.clearAllMocks();});
 describe('Live Survey controls',()=>{
-  it('selects completed cells without navigating and opens a combined area',async()=>{
+  it('uses one selection button and opens a single selected cell directly',async()=>{
     mocks.get.mockImplementation(async(path:string)=>path.endsWith('/processed-blocks')?[{column:0,row:0,size:50,until:10,status:'completed',result_processed_dataset_id:'processed'}]:path.includes('/replays/')?replay:{});
     const open=vi.fn();
     render(<LiveSurvey visible openArea={mocks.openArea} refresh={()=>{}} openProcessed={open}/>);
@@ -29,7 +29,9 @@ describe('Live Survey controls',()=>{
     fireEvent.click(screen.getByText('Select block 0:0'));
     expect(open).not.toHaveBeenCalled();expect(screen.getByText('Selected: 1 / 20')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Open selected area'));
-    expect(mocks.openArea).toHaveBeenCalledWith(['processed']);
+    expect(open).toHaveBeenCalledWith('processed');
+    expect(mocks.openArea).not.toHaveBeenCalled();
+    expect(screen.queryByText('Select multiple cells')).not.toBeInTheDocument();
     expect(screen.queryByText('Combined tiles: processed')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Clear selection'));
     expect(await screen.findByText('Open selected area')).toBeDisabled();
@@ -70,6 +72,7 @@ describe('Live Survey controls',()=>{
     fireEvent.change(screen.getByLabelText('Playback speed'),{target:{value:'60'}});
     vi.useFakeTimers();
     fireEvent.click(screen.getByText('Play & process'));
+    await act(async()=>{});
     await act(async()=>{await vi.advanceTimersByTimeAsync(500);});
     expect(mocks.post).toHaveBeenCalledWith('/api/survey/replays/test/blocks',{column:0,row:0,size:50,until:10});
     expect(mocks.post).toHaveBeenCalledWith('/api/jobs/process/raw');

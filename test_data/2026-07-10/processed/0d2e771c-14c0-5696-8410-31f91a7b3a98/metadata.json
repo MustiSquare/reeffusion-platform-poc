@@ -1,0 +1,82 @@
+{
+  "processed_dataset_id": "0d2e771c-14c0-5696-8410-31f91a7b3a98",
+  "name": "Combined reef area (20 cells)",
+  "raw_dataset_id": null,
+  "survey_date_utc": "2026-07-10T20:00:46.221000+00:00",
+  "coordinate_system": {
+    "crs": "LOCAL_GRID",
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "vertical_convention": "elevation_positive_up",
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      196100.0,
+      2234400.0
+    ]
+  },
+  "quality_report": {
+    "source_dataset_ids": [
+      "002fcf03-d917-4c9d-bb6a-ef547b9be59e",
+      "044134bd-85bb-45af-924f-419ddd13f5ff",
+      "05d5e998-28ed-4149-96c6-5bced93c18f6",
+      "0a00b567-cfa9-4752-bcbf-40d96c7e0de2",
+      "0ce8053f-b522-4d73-ab18-47facf746609",
+      "1737fa0c-5320-45a4-a66c-0b5022a83e43",
+      "17c919e4-745b-4b50-afaa-0a0cf8b1393c",
+      "209cae1e-0ccc-4c19-8336-b0d2f969a668",
+      "303b435e-78c8-42ac-9f82-47de11771821",
+      "38c7ebad-7a6e-486f-8d37-891d46d3c8e3",
+      "42276d8f-7ccd-44ab-af22-021dee619f0e",
+      "85ef8e78-9f7f-4042-b417-1c81dbd2eb7a",
+      "9a2b9e31-616d-48bc-b271-bd5683207731",
+      "9fa6dbce-cd88-4f9c-b38b-34be166d5462",
+      "a6486205-4c6f-40ae-a759-b0437e799a98",
+      "ad7195d9-af7c-431d-aef6-1d45a0e865cf",
+      "cfded37d-0725-4872-858d-c11a4caee20a",
+      "d07b4177-ca98-4dce-8401-d3af77b8aa10",
+      "d7ee1b21-cd4f-4054-b7d1-2993a3dd65ce",
+      "f252ed60-a8f9-4080-a4b5-de787ec3f548"
+    ],
+    "notes": [
+      "Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."
+    ]
+  },
+  "metrics": {
+    "surface_area": 31329.428510091027,
+    "planar_area": 21932.3353316926,
+    "rugosity": 1.4284583942513165
+  },
+  "source_metadata": null,
+  "files": [
+    {
+      "name": "mesh.glb",
+      "size_bytes": 1096824,
+      "sha256": "1effb535f5316a75cf32f5354990edec66586c27c77b49e1954b9264a25c5278",
+      "asset_type": "mesh_glb",
+      "asset_id": "9a53414c-60ec-4dad-a469-5706ea5a1a0f"
+    },
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 1008434,
+      "sha256": "e8983b147ddeb30d0369b1bde3e3f8c0348c13c1dba121856fd725da59eb6ba2",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "d5c376d7-6e07-4d01-8f63-5203d53c4256"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 1155825,
+      "sha256": "0bd34c33683dd65c23104cb57635c1cce4feabe245f9a68f3243b7feeff97984",
+      "asset_type": "mesh_ply",
+      "asset_id": "620057cd-556f-4f35-9106-a1b31827df49"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 2392126,
+      "sha256": "295bf615624a6ca167fea16c48582015a33616961ad7a869fa85d2160eae9ac1",
+      "asset_type": "mesh_obj",
+      "asset_id": "75a205da-3457-4635-9809-4490393b5f63"
+    }
+  ]
+}

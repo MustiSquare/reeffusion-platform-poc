@@ -1,0 +1,82 @@
+{
+  "processed_dataset_id": "0b1855b7-c77b-5ad5-b747-9ff423694ac7",
+  "name": "Combined reef area (12 cells)",
+  "raw_dataset_id": null,
+  "survey_date_utc": "2026-07-10T20:00:46.221000+00:00",
+  "coordinate_system": {
+    "crs": "LOCAL_GRID",
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "vertical_convention": "elevation_positive_up",
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      196600.0,
+      2234450.0
+    ],
+    "sea_level_reference": null
+  },
+  "quality_report": {
+    "source_dataset_ids": [
+      "1737fa0c-5320-45a4-a66c-0b5022a83e43",
+      "2de580f7-6325-48b0-9e47-4152e9262a99",
+      "303b435e-78c8-42ac-9f82-47de11771821",
+      "38c7ebad-7a6e-486f-8d37-891d46d3c8e3",
+      "5621faf5-92b8-4fe8-957b-08e2bc1628d6",
+      "63af6e05-7f50-4078-a075-dca887a69cf4",
+      "95f2bf7c-6e8c-45c8-90e0-88071bc16429",
+      "ad7195d9-af7c-431d-aef6-1d45a0e865cf",
+      "adaed0bd-27e2-4f8b-b3c4-a4151eae0390",
+      "ba0b4cb8-c026-4b54-938e-9d63b9bf42a0",
+      "e886da1b-9a9d-4538-826e-14945e698b55",
+      "f252ed60-a8f9-4080-a4b5-de787ec3f548"
+    ],
+    "notes": [
+      "Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."
+    ]
+  },
+  "metrics": {
+    "surface_area": 18270.004487187085,
+    "planar_area": 16132.36761885134,
+    "rugosity": 1.1325060845897057
+  },
+  "source_metadata": null,
+  "files": [
+    {
+      "name": "mesh.glb",
+      "size_bytes": 730920,
+      "sha256": "4b9751566f8898523b6af11d73c959a298361b63dae6000ed2cea83f75494dce",
+      "asset_type": "mesh_glb",
+      "asset_id": "9cdc33ad-fb1a-40cd-8a9c-9f06b3aa2279"
+    },
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 677597,
+      "sha256": "b34763e43581cf2583716691392d5ae7afa54e1c94003f76381abee5e952df46",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "f1a4eb7c-4111-47a9-9e5e-a95c96a70d11"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 769803,
+      "sha256": "c34b9d2abc2017f634b8e314bdcc579d48ca0311f5c168d119af8bcff9ab9c2a",
+      "asset_type": "mesh_ply",
+      "asset_id": "0253dfb3-cbc3-45ed-ad1b-2fbf69091bdb"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 1575467,
+      "sha256": "a6547f62ada2740945695e8a4ac5a326fc0f7f6061a00747167c4e8f281c4fe8",
+      "asset_type": "mesh_obj",
+      "asset_id": "07320703-838b-459c-a7c4-2071d7bef98a"
+    },
+    {
+      "name": "sounding_references.json",
+      "size_bytes": 616702,
+      "sha256": "ffe6b6c09f69830895b0038b01531afdeb1a196873e9eb5bb364667ca1861b08",
+      "asset_type": "sounding_references",
+      "asset_id": "5186d6f4-f835-4750-b06c-0c8c0bed51c2"
+    }
+  ]
+}

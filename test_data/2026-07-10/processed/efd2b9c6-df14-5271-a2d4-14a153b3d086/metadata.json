@@ -1,0 +1,76 @@
+{
+  "processed_dataset_id": "efd2b9c6-df14-5271-a2d4-14a153b3d086",
+  "name": "Combined reef area (6 cells)",
+  "raw_dataset_id": null,
+  "survey_date_utc": "2026-07-10T20:00:46.221000+00:00",
+  "coordinate_system": {
+    "crs": "LOCAL_GRID",
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "vertical_convention": "elevation_positive_up",
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      196650.0,
+      2234450.0
+    ],
+    "sea_level_reference": null
+  },
+  "quality_report": {
+    "source_dataset_ids": [
+      "42276d8f-7ccd-44ab-af22-021dee619f0e",
+      "85ef8e78-9f7f-4042-b417-1c81dbd2eb7a",
+      "8f74f7c6-d3df-4d93-b781-33101b9b3037",
+      "9a2b9e31-616d-48bc-b271-bd5683207731",
+      "a6486205-4c6f-40ae-a759-b0437e799a98",
+      "d07b4177-ca98-4dce-8401-d3af77b8aa10"
+    ],
+    "notes": [
+      "Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."
+    ]
+  },
+  "metrics": {
+    "surface_area": 8775.811174533505,
+    "planar_area": 3744.645685061996,
+    "rugosity": 2.343562492318472
+  },
+  "source_metadata": null,
+  "files": [
+    {
+      "name": "mesh.glb",
+      "size_bytes": 283400,
+      "sha256": "7398ca2ebe7c6cffa61ab54038793e0901b76c89c2e0c8d7c34858a65c1d4d3b",
+      "asset_type": "mesh_glb",
+      "asset_id": "5838af8d-551e-4957-a931-b48b42da007c"
+    },
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 251961,
+      "sha256": "b97b66972ea4a75292847c0d94148293161e3118558b8a773d2ac8bc4c761b11",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "6f88382a-33c1-45b4-891c-70e726da6726"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 298146,
+      "sha256": "063653ecfb673d008505450134a78ed81599f76d669711ed63c3d78d3e44c76f",
+      "asset_type": "mesh_ply",
+      "asset_id": "353e6442-9865-4438-91be-46128e9ed0fb"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 572183,
+      "sha256": "9f2a7685ff5523bc9f66875dee775c4810ba51a2f96b5d2a093572a1f23373f3",
+      "asset_type": "mesh_obj",
+      "asset_id": "95297d05-8585-4236-b1f8-0f6bca4d97ad"
+    },
+    {
+      "name": "sounding_references.json",
+      "size_bytes": 132552,
+      "sha256": "85a34f6cf21bd7711bea6cc5e070377741be9c92936ce27116a4c04be1623399",
+      "asset_type": "sounding_references",
+      "asset_id": "f0098392-aa53-401c-88f9-0844444fb4e0"
+    }
+  ]
+}

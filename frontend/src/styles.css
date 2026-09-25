@@ -1549,3 +1549,9 @@ input[type="range"] {
   background: var(--accent-deep);
   color: var(--text-on-accent);
 }
+
+.sea-level-controls, .sea-level-readout { display:flex; flex-direction:column; gap:8px; }
+.sea-level-controls label { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.sea-level-controls input[type=number] { width:100%; min-width:0; }
+.sea-level-controls small, .sea-level-readout small { color:var(--text-muted); font-size:11px; }
+.sea-level-readout { font-size:12px; padding:8px 0; border-bottom:1px solid var(--hairline); }

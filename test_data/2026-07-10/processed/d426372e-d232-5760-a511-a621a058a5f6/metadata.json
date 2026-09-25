@@ -1,0 +1,66 @@
+{
+  "processed_dataset_id": "d426372e-d232-5760-a511-a621a058a5f6",
+  "name": "Combined reef area (4 cells)",
+  "raw_dataset_id": null,
+  "survey_date_utc": "2026-07-10T20:00:46.221000+00:00",
+  "coordinate_system": {
+    "crs": "LOCAL_GRID",
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "vertical_convention": "elevation_positive_up",
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      196750.0,
+      2234450.0
+    ]
+  },
+  "quality_report": {
+    "source_dataset_ids": [
+      "85ef8e78-9f7f-4042-b417-1c81dbd2eb7a",
+      "9a2b9e31-616d-48bc-b271-bd5683207731",
+      "a6486205-4c6f-40ae-a759-b0437e799a98",
+      "d07b4177-ca98-4dce-8401-d3af77b8aa10"
+    ],
+    "notes": [
+      "Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."
+    ]
+  },
+  "metrics": {
+    "surface_area": 6920.060353636619,
+    "planar_area": 2407.8257667283515,
+    "rugosity": 2.8739871668701737
+  },
+  "source_metadata": null,
+  "files": [
+    {
+      "name": "mesh.glb",
+      "size_bytes": 206084,
+      "sha256": "9893846bbe28227f59b31682398e4b3012a77b4446fffd18fe544d62d3143c4f",
+      "asset_type": "mesh_glb",
+      "asset_id": "fa2d8dd4-1a16-4a2c-b5f7-b3ce8a545d4e"
+    },
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 183471,
+      "sha256": "9c2b6cccf15cf9c99b84c94d82ae4bb7c8a24a2c1ce26a7ac4bdfb82d6f8bc0b",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "15a8f660-5cf5-40f9-9a48-c4e5692738f2"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 216657,
+      "sha256": "17be778a0c8ad046333131e0980095bba8e0d01d22b7a9bb000b5cc8ebdbae9e",
+      "asset_type": "mesh_ply",
+      "asset_id": "83d9fbd5-d12e-4847-b783-b7925d7f4cfc"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 414486,
+      "sha256": "3ce00136e85538769d060a48be6ca7a20dd9027480858bbfb5d23c21db1a1ab3",
+      "asset_type": "mesh_obj",
+      "asset_id": "3ff81c39-e9f3-46bc-8a90-49c6ede9b866"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from sqlalchemy.orm import Session
 from app.models.tables import ProcessingJob, RawDataset, ProcessedDataset, ProcessedAsset
@@ -283,44 +284,58 @@ def run_processing_pipeline(db: Session, job_id: str):
             "insights": generate_ai_insights(metrics),
         }
 
-        proc = ProcessedDataset(
-            raw_dataset_id=raw.id,
-            name=f"Processed {raw.name}",
-            location_id=raw.location_id,
-            processing_version="bathymetry-mesh-v1",
-            processing_version_json=PROCESSING_VERSION.model_dump(mode="json"),
-            coordinate_system_json=raw.coordinate_system_json or bathymetry.metadata,
-            quality_report_json=quality_report.model_dump(mode="json"),
-            metrics_json=metrics,
-            viewer_config_json={"primary": "point_cloud_xyz", "ai_layers": projected_layers.get("layers", [])},
-        )
-        db.add(proc)
-        db.commit()
-        for name, data, ctype, atype in [
-            ("point_cloud.xyz.csv", point_cloud_data, "text/csv", "point_cloud_xyz"),
-            ("mesh.glb", mesh_glb_data, "model/gltf-binary", "mesh_glb"),
-            ("mesh.ply", mesh_ply_data, "application/octet-stream", "mesh_ply"),
-            ("mesh.obj", mesh_obj_data, "text/plain", "mesh_obj"),
-            ("coral_texture.jpg", texture_data, "image/jpeg", "coral_texture"),
-            ("texture_mapping.json", texture_metadata_data, "application/json", "texture_mapping"),
-        ]:
-            key = f"processed/{proc.id}/{name}"
-            s3.put_bytes(key, data, ctype)
-            metadata = texture_metadata if atype == "texture_mapping" else {}
-            db.add(ProcessedAsset(dataset_id=proc.id, file_name=name, object_key=key, media_type=ctype, asset_type=atype, metadata_json=metadata))
-        _record_step(
-            db,
-            job,
-            STEP_VIEWER_LAYERS,
-            output={
-                "processed_dataset_id": proc.id,
-                "assets": ["point_cloud.xyz.csv", "mesh.glb", "mesh.ply", "mesh.obj", "coral_texture.jpg", "texture_mapping.json"],
-                "ai_layers": projected_layers.get("layers", []),
-            },
-        )
-        # Flush assets before enumerating them for the dated local export.
-        db.flush()
-        record_export(db, proc, raw, s3)
+        proc = (db.query(ProcessedDataset).filter_by(raw_dataset_id=raw.id)
+                .order_by(ProcessedDataset.created_at.desc()).first())
+        proc_id = proc.id if proc else str(uuid4())
+        # Write a new revision first. Failed uploads never replace the last good assets.
+        staged = []
+        try:
+            for name, data, ctype, atype in [
+                ("point_cloud.xyz.csv", point_cloud_data, "text/csv", "point_cloud_xyz"),
+                ("mesh.glb", mesh_glb_data, "model/gltf-binary", "mesh_glb"),
+                ("mesh.ply", mesh_ply_data, "application/octet-stream", "mesh_ply"),
+                ("mesh.obj", mesh_obj_data, "text/plain", "mesh_obj"),
+                ("coral_texture.jpg", texture_data, "image/jpeg", "coral_texture"),
+                ("texture_mapping.json", texture_metadata_data, "application/json", "texture_mapping"),
+            ]:
+                key = f"processed/{proc_id}/revisions/{job.id}/{name}" if proc else f"processed/{proc_id}/{name}"
+                s3.put_bytes(key, data, ctype)
+                staged.append((name, key, ctype, atype))
+            references=next((a for a in raw.assets if a.asset_type=='sounding_references'),None)
+            if references:
+                key=f"processed/{proc_id}/revisions/{job.id}/sounding_references.json"
+                s3.put_bytes(key,s3.get_bytes(references.object_key),'application/json')
+                staged.append(('sounding_references.json',key,'application/json','sounding_references'))
+        except Exception:
+            for _, key, _, _ in staged:
+                s3.delete_key(key)
+            raise
+        _record_step(db, job, STEP_VIEWER_LAYERS, output={"processed_dataset_id":proc_id,
+            "assets":[a[0] for a in staged],"ai_layers":projected_layers.get("layers", [])})
+        if proc is None:
+            proc = ProcessedDataset(id=proc_id, raw_dataset_id=raw.id)
+            db.add(proc)
+        proc.name = f"Processed {raw.name}"
+        proc.location_id = raw.location_id
+        proc.processing_version = "bathymetry-mesh-v1"
+        proc.processing_version_json = PROCESSING_VERSION.model_dump(mode="json")
+        proc.coordinate_system_json = raw.coordinate_system_json or bathymetry.metadata
+        proc.quality_report_json = quality_report.model_dump(mode="json")
+        proc.metrics_json = metrics
+        proc.viewer_config_json = {"primary":"point_cloud_xyz", "ai_layers":projected_layers.get("layers", []),
+            "revision":job.id,"block_snapshot":(raw.metadata_json or {}).get("block"),
+            "snapshot_sha256":(raw.metadata_json or {}).get("snapshot_sha256")}
+        old_keys = []
+        assets = {asset.asset_type:asset for asset in proc.assets}
+        for name, key, ctype, atype in staged:
+            asset = assets.get(atype)
+            if asset is None:
+                asset = ProcessedAsset(dataset_id=proc_id, asset_type=atype)
+                db.add(asset)
+            else:
+                old_keys.append(asset.object_key)
+            asset.file_name, asset.object_key, asset.media_type = name, key, ctype
+            asset.metadata_json = texture_metadata if atype == "texture_mapping" else {}
         raw.status = "processed"
         job.status = "completed"
         job.current_step = STEP_COMPLETED
@@ -336,7 +351,15 @@ def run_processing_pipeline(db: Session, job_id: str):
             }
         ]
         db.commit()
+        db.expire(proc, ["assets"])
+        record_export(db, proc, raw, s3)
+        for key in old_keys:
+            try:
+                s3.delete_key(key)
+            except Exception:
+                pass  # A storage cleanup failure must not undo successful processing.
     except Exception as e:
+        db.rollback()
         failed_step = getattr(job, "current_step", None) or STEP_QUEUED
         job.status = "failed"
         job.error = str(e)

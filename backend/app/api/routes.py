@@ -1,6 +1,7 @@
 import json
+from uuid import uuid5, NAMESPACE_URL
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Response
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Response, Header
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.tables import *
@@ -15,11 +16,12 @@ from app.services.dataset_cleanup import delete_processed_dataset, delete_raw_da
 from app.services.ingestion import UploadedSurveyFile, validate_survey_upload
 from app.schemas.api import AnnotationIn, ComparisonIn, ReefReportIn, ReefQuestionIn
 from app.worker import process_dataset
+from app.services.overwrite import require_overwrite, survey_date_key
 
 router=APIRouter(prefix="/api")
 
 def ds_summary(d):
-    return {"id":d.id,"name":d.name,"status":getattr(d,"status",None),"survey_date":str(getattr(d,"survey_date",'')),"acquisition_started_at":str(getattr(d,"acquisition_started_at",None) or "") if hasattr(d,"acquisition_started_at") else None,"acquisition_ended_at":str(getattr(d,"acquisition_ended_at",None) or "") if hasattr(d,"acquisition_ended_at") else None,"location": d.location.name if getattr(d,"location",None) else None,"file_count":len(getattr(d,"assets",[]) or []),"metadata":getattr(d,"metadata_json",None),"sensor_metadata":getattr(d,"sensor_metadata_json",None),"coordinate_system":getattr(d,"coordinate_system_json",None),"quality_report":getattr(d,"quality_report_json",None),"metrics":getattr(d,"metrics_json",None),"processing_version":getattr(d,"processing_version",None),"processing_version_info":getattr(d,"processing_version_json",None)}
+    return {"id":d.id,"name":d.name,"raw_dataset_id":getattr(d,"raw_dataset_id",None),"viewer_config":getattr(d,"viewer_config_json",None),"status":getattr(d,"status",None),"survey_date":str(getattr(d,"survey_date",'')),"acquisition_started_at":str(getattr(d,"acquisition_started_at",None) or "") if hasattr(d,"acquisition_started_at") else None,"acquisition_ended_at":str(getattr(d,"acquisition_ended_at",None) or "") if hasattr(d,"acquisition_ended_at") else None,"location": d.location.name if getattr(d,"location",None) else None,"file_count":len(getattr(d,"assets",[]) or []),"metadata":getattr(d,"metadata_json",None),"sensor_metadata":getattr(d,"sensor_metadata_json",None),"coordinate_system":getattr(d,"coordinate_system_json",None),"quality_report":getattr(d,"quality_report_json",None),"metrics":getattr(d,"metrics_json",None),"processing_version":getattr(d,"processing_version",None),"processing_version_info":getattr(d,"processing_version_json",None)}
 
 
 def _polygon_planar_area(coords: list[list[float]]) -> float:
@@ -53,6 +55,7 @@ async def upload(
     crs: str | None = Form(default=None),
     vertical_datum: str | None = Form(default=None),
     db: Session=Depends(get_db),
+    overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite"),
     _principal=Depends(require_role("editor")),
 ):
     uploaded = [
@@ -90,6 +93,29 @@ async def upload(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    if not survey_name and ingestion.dataset_name == "Uploaded Reef Dataset":
+        ingestion.dataset_name = next((a.filename for a in ingestion.assets if a.asset_type in ("bathymetry","image","video")), ingestion.dataset_name)
+    # Match content plus acquisition date, independent of display names.
+    signature = sorted((a.asset_type, a.metadata.get("sha256")) for a in ingestion.assets if a.filename != "upload_metadata.json")
+    date_key = survey_date_key(ingestion.acquisition.started_at)
+    for candidate in db.query(RawDataset).filter_by(source="upload").order_by(RawDataset.created_at.desc()).all():
+        prior = sorted((a.asset_type, (a.metadata_json or {}).get("sha256")) for a in candidate.assets if a.file_name != "upload_metadata.json")
+        candidate_date = survey_date_key(candidate.acquisition_started_at)
+        # SQLite and legacy rows may omit the UTC offset.
+        same_date = candidate_date == date_key
+        if prior == signature and same_date:
+            require_overwrite(db, [candidate.id], candidate.id, overwrite is True)
+            candidate.name = ingestion.dataset_name
+            candidate.metadata_json = ingestion.dataset_metadata
+            candidate.quality_report_json = ingestion.quality_report.model_dump(mode="json")
+            candidate.acquisition_ended_at = ingestion.acquisition.ended_at
+            candidate.coordinate_system_json = ingestion.coordinate_system.model_dump(mode="json")
+            candidate.sensor_metadata_json = ingestion.sensor_metadata.model_dump(mode="json")
+            db.commit()
+            return {"dataset_id":candidate.id,"name":candidate.name,"existing":True,
+                    "file_count":len(candidate.assets),"asset_counts":ingestion.dataset_metadata["asset_counts"],
+                    "warnings":ingestion.dataset_metadata["warnings"],"location_id":candidate.location_id}
+
     location_id = None
     if ingestion.location:
         loc = SurveyLocation(
@@ -111,6 +137,7 @@ async def upload(
 
     s3 = store()
     raw = RawDataset(
+        id=str(uuid5(NAMESPACE_URL, "reef-upload:" + json.dumps([signature,date_key]))),
         name=ingestion.dataset_name,
         source="upload",
         location_id=location_id,
@@ -183,8 +210,13 @@ def proc_delete(dataset_id: str, db: Session=Depends(get_db), _principal=Depends
     return result
 
 @router.post("/jobs/process/{dataset_id}")
-def process(dataset_id: str, db: Session=Depends(get_db), _principal=Depends(require_role("editor"))):
-    if not db.get(RawDataset,dataset_id): raise HTTPException(404)
+def process(dataset_id: str, db: Session=Depends(get_db), overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite"), _principal=Depends(require_role("editor"))):
+    raw = db.query(RawDataset).filter_by(id=dataset_id).with_for_update().first()
+    if not raw: raise HTTPException(404)
+    active = db.query(ProcessingJob).filter(ProcessingJob.raw_dataset_id==dataset_id, ProcessingJob.status.notin_(["completed","failed"])).first()
+    if active: return {"job_id":active.id,"status":active.status}
+    key = (raw.metadata_json or {}).get("replay_id") or raw.id
+    require_overwrite(db, [raw.id], key, overwrite is True)
     job=ProcessingJob(raw_dataset_id=dataset_id); db.add(job); db.commit(); process_dataset.delay(job.id); return {"job_id":job.id,"status":job.status}
 
 @router.get("/jobs/{job_id}")

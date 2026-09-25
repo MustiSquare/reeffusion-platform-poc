@@ -1,5 +1,7 @@
 """Assemble existing tile meshes without reconstructing or bridging survey gaps."""
 import io
+import hashlib
+import json
 from copy import deepcopy
 from uuid import uuid5, NAMESPACE_URL
 
@@ -7,6 +9,7 @@ import numpy as np
 import trimesh
 from fastapi import HTTPException
 from app.models.tables import ProcessedDataset, ProcessedAsset, RawDataset, Annotation
+from app.services.sea_levels import summarize_references, processed_sounding_reference
 from app.services.processed_export import record_export
 
 
@@ -21,8 +24,6 @@ def combine_datasets(ids, db, storage):
         return {"dataset_id": result.id}
     result_id = str(uuid5(NAMESPACE_URL, "reef-combined-v1:" + ",".join(ids)))
     existing = db.get(ProcessedDataset, result_id)
-    if existing and existing.status == "completed":
-        return {"dataset_id": result_id}
     sources, origins, meshes = [], [], []
     reference = None
     for dataset_id in ids:
@@ -39,6 +40,10 @@ def combine_datasets(ids, db, storage):
         reference = (crs, datum)
         sources.append(dataset)
         origins.append(np.asarray(origin, dtype=float))
+    revisions = {source.id:(source.viewer_config_json or {}).get("revision", "legacy") for source in sources}
+    if existing and (existing.viewer_config_json or {}).get("source_revisions") == revisions and (existing.viewer_config_json or {}).get('sounding_reference_version')==2:
+        return {"dataset_id":result_id}
+    revision_key = hashlib.sha256(json.dumps({"sources":revisions,"sounding_reference_version":2}, sort_keys=True).encode()).hexdigest()[:16]
     anchor = origins[0]
     offsets = [origin - anchor for origin in origins]
     for dataset, offset in zip(sources, offsets):
@@ -61,28 +66,46 @@ def combine_datasets(ids, db, storage):
     ab, ac = triangles[:, 1, :2] - triangles[:, 0, :2], triangles[:, 2, :2] - triangles[:, 0, :2]
     planar = float(np.abs(ab[:, 0] * ac[:, 1] - ab[:, 1] * ac[:, 0]).sum() / 2)
     raw = db.get(RawDataset, sources[0].raw_dataset_id) if sources[0].raw_dataset_id else None
-    result = ProcessedDataset(id=result_id, name=f"Combined reef area ({len(ids)} cells)",
+    values = dict(name=f"Combined reef area ({len(ids)} cells)",
         location_id=sources[0].location_id,
         survey_date=(raw.acquisition_started_at or raw.survey_date) if raw else sources[0].survey_date,
         processing_version="combined-existing-meshes-v1",
-        coordinate_system_json={**sources[0].coordinate_system_json, "projected_origin": anchor.tolist()},
+        coordinate_system_json={**sources[0].coordinate_system_json, "projected_origin": anchor.tolist(),
+            "sea_level_reference":summarize_references([s.coordinate_system_json.get("sea_level_reference") or {} for s in sources],sum((s.coordinate_system_json.get("sea_level_reference") or {}).get("total_soundings",0) for s in sources)) if all(s.coordinate_system_json.get("sea_level_reference") for s in sources) else None},
         quality_report_json={"source_dataset_ids": ids, "notes": ["Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."]},
         metrics_json={"surface_area": area, "planar_area": planar, "rugosity": area / planar if planar else None},
-        viewer_config_json={"source_dataset_ids": ids, "primary": "mesh_glb"})
+        viewer_config_json={"source_dataset_ids": ids, "source_revisions":revisions,"primary": "mesh_glb","sounding_reference_version":2})
+    result = existing or ProcessedDataset(id=result_id)
     assets = [("mesh.glb", mesh.export(file_type="glb"), "model/gltf-binary", "mesh_glb"),
               ("point_cloud.xyz.csv", csv.getvalue().encode(), "text/csv", "point_cloud_xyz"),
               ("mesh.ply", mesh.export(file_type="ply"), "application/octet-stream", "mesh_ply"),
               ("mesh.obj", mesh.export(file_type="obj").encode(), "text/plain", "mesh_obj")]
-    written = []
+    from app.api.survey import load_replay
+    ref_points=[]
+    for source,offset in zip(sources,offsets):
+        data=processed_sounding_reference(source,db,storage,load_replay)
+        ref_points.extend([[p[0]+float(offset[0]),p[1]+float(offset[1]),*p[2:]] for p in data.get('points',[])])
+    reference_data={'version':2,'points':ref_points,'waterline_offset_m':None,'msl_offset_m':None,'source':'Combined per-sounding vertical distances'}
+    assets.append(('sounding_references.json',json.dumps(reference_data).encode(),'application/json','sounding_references'))
+    written, old_keys = [], []
     try:
-        db.add(result)
-        db.flush()
         for name, data, media, kind in assets:
-            key = f"processed/{result_id}/{name}"
+            key = f"processed/{result_id}/revisions/{revision_key}/{name}"
             storage.put_bytes(key, data, media)
             written.append(key)
-            db.add(ProcessedAsset(dataset_id=result_id, file_name=name, object_key=key, media_type=media, asset_type=kind))
-        for source, offset in zip(sources, offsets):
+        for key,value in values.items(): setattr(result,key,value)
+        db.add(result)
+        db.flush()
+        prior = {a.asset_type:a for a in result.assets}
+        for (name, _, media, kind), key in zip(assets, written):
+            asset = prior.get(kind)
+            if asset is None:
+                asset = ProcessedAsset(dataset_id=result_id, asset_type=kind)
+                db.add(asset)
+            else:
+                old_keys.append(asset.object_key)
+            asset.file_name, asset.object_key, asset.media_type = name, key, media
+        for source, offset in ([] if existing else zip(sources, offsets)):
             for annotation in db.query(Annotation).filter_by(processed_dataset_id=source.id).all():
                 geometry = deepcopy(annotation.geometry_json)
                 def translate(value):
@@ -99,5 +122,10 @@ def combine_datasets(ids, db, storage):
         for key in written:
             storage.delete_key(key)
         raise
+    db.expire(result, ["assets"])
     record_export(db, result, None, storage)
+    for key in old_keys:
+        if key not in written:
+            try: storage.delete_key(key)
+            except Exception: pass
     return {"dataset_id": result_id}

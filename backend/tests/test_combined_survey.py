@@ -75,3 +75,33 @@ def test_selection_limit_and_missing_result(fixture):
     with pytest.raises(HTTPException) as error:
         combined_survey.combine_datasets(["0", "missing"], db, storage)
     assert error.value.status_code == 404
+
+
+def test_combined_refreshes_in_place_after_source_reprocessing(fixture):
+    db, storage = fixture
+    result=combined_survey.combine_datasets(["0","1"],db,storage)
+    combined=db.get(ProcessedDataset,result["dataset_id"])
+    asset_ids={a.asset_type:a.id for a in combined.assets}
+    source=db.get(ProcessedDataset,"1")
+    source.viewer_config_json={"revision":"new-run"};db.commit()
+    again=combined_survey.combine_datasets(["0","1"],db,storage)
+    assert again == result
+    assert combined.viewer_config_json["source_revisions"]["1"] == "new-run"
+    assert {a.asset_type:a.id for a in combined.assets} == asset_ids
+    assert db.query(ProcessedDataset).count() == 3
+    assert db.query(Annotation).count() == 2
+
+
+def test_combined_sounding_references_translate_xy_and_preserve_z_altitude(fixture):
+    import json
+    db,storage=fixture
+    for i in range(2):
+        key=f'references-{i}'
+        storage.put_bytes(key,json.dumps({'version':2,'points':[[.2,.3,-20,18]]}).encode())
+        db.add(ProcessedAsset(dataset_id=str(i),asset_type='sounding_references',object_key=key))
+    db.commit()
+    result=combined_survey.combine_datasets(['0','1'],db,storage)
+    d=db.get(ProcessedDataset,result['dataset_id'])
+    asset=next(a for a in d.assets if a.asset_type=='sounding_references')
+    points=json.loads(storage.get_bytes(asset.object_key))['points']
+    assert points==[[.2,.3,-20,18],[50.2,50.3,-20,18]]

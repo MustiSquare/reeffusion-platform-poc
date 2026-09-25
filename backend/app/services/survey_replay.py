@@ -109,7 +109,9 @@ def decode_sonar(data: bytes, filename: str) -> dict:
                 x, y = projection.transform(lon, lat)
                 heading = msg.get("hdg", 65535)
                 heading = heading / 100 if heading != 65535 else (math.degrees(attitude[3]) % 360 if attitude else 0)
-                nav = (stamp, x, y, lon, lat, heading)
+                alt=msg.get("alt")
+                alt_m=alt/1000 if isinstance(alt,(int,float)) and not isinstance(alt,bool) and math.isfinite(alt) else None
+                nav = (stamp, x, y, lon, lat, heading, alt_m)
                 frame_at(stamp)["boat"] = [round(lon, 7), round(lat, 7), round(heading, 1), round(x, 3), round(y, 3)]
         elif kind == 3104 and len(payload) >= 80:
             ping, sos, n = struct.unpack_from("<IfH", payload)
@@ -169,10 +171,16 @@ def decode_sonar(data: bytes, filename: str) -> dict:
                     if retained >= MAX_POINTS:
                         continue
                     retained += 1
-                    frame["bins"][key] = [x, y, z, 1]
+                    frame["bins"][key] = [x, y, z, 1, 0., 0, None, None, 0.]
                 else:
                     cell = frame["bins"][key]
                     cell[0] += x; cell[1] += y; cell[2] += z; cell[3] += 1
+                cell=frame["bins"][key]
+                cell[8]+=down
+                if position[6] is not None:
+                    alt=position[6];cell[4]+=alt;cell[5]+=1
+                    cell[6]=alt if cell[6] is None else min(cell[6],alt)
+                    cell[7]=alt if cell[7] is None else max(cell[7],alt)
     if projection is None or not frames:
         raise ValueError("No valid WGS84 BlueBoat navigation found in this recording")
     if retained >= MAX_POINTS:
@@ -186,10 +194,15 @@ def decode_sonar(data: bytes, filename: str) -> dict:
     for second in sorted(frames):
         f = frames[second]
         points = []
-        for sx, sy, sz, count in f.pop("bins").values():
+        vertical=[];soundings=[]
+        for sx, sy, sz, count, alt_sum, alt_count, alt_min, alt_max, depth_sum in f.pop("bins").values():
             x, y, z = sx/count, sy/count, sz/count
             lon, lat = inverse.transform(x, y)
+            soundings.append([round(x,3),round(y,3),round(z,3),depth_sum/count,count])
+            if alt_count:vertical.append([round(x,3),round(y,3),alt_sum,alt_count,alt_min,alt_max])
             points.append([round(x, 3), round(y, 3), round(z, 3), round(lon, 7), round(lat, 7), count])
+        f["sounding_altitudes"] = soundings
+        f["vertical_samples"] = vertical
         f["points"] = points
         output.append(f)
     if not retained:
@@ -197,7 +210,7 @@ def decode_sonar(data: bytes, filename: str) -> dict:
     return {"name": filename, "started_at": datetime.fromtimestamp(start, timezone.utc).isoformat(),
             "duration": output[-1]["t"], "crs": f"EPSG:{epsg}", "frames": output,
             "point_count": retained, "warnings": warnings, "packet_counts": dict(counts),
-            "skipped": dict(skipped), "vertical_datum": "vehicle_origin_uncorrected",
+            "vertical_reference_version":2, "skipped": dict(skipped), "vertical_datum": "vehicle_origin_uncorrected",
             "reduction": "power-filtered means in 1 m cells per replay second"}
 
 

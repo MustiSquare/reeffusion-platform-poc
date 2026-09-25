@@ -26,7 +26,7 @@ def test_delete_raw_dataset_cleans_raw_processed_and_objects():
             asset_type="mesh_glb",
         )
     )
-    db.add(ProcessingJob(raw_dataset_id=raw.id, result_processed_dataset_id=processed.id))
+    db.add(ProcessingJob(raw_dataset_id=raw.id, result_processed_dataset_id=processed.id, status="completed"))
     db.commit()
 
     result = delete_raw_dataset(db, raw.id, object_store)
@@ -59,3 +59,34 @@ def test_role_guard_rejects_editor_for_admin_operation():
         assert exc.value.status_code == 403
     finally:
         settings.auth_enabled = original
+
+
+def test_deletion_removes_local_exports_and_derived_results(monkeypatch,tmp_path):
+    from app.models.tables import RawDataset
+    monkeypatch.setattr(settings,"processed_export_dir",str(tmp_path))
+    db, storage = in_memory_session(), FakeObjectStore()
+    raw = create_raw_fixture_dataset(db,storage)
+    processed = ProcessedDataset(raw_dataset_id=raw.id)
+    db.add(processed);db.flush()
+    derived = ProcessedDataset(viewer_config_json={"source_dataset_ids":[processed.id]})
+    db.add(derived);db.commit()
+    for item in [processed,derived]:
+        directory=tmp_path/'2026-07-10'/'processed'/item.id
+        directory.mkdir(parents=True);(directory/'mesh.glb').write_bytes(b'glTF')
+        storage.put_bytes(f'processed/{item.id}/mesh.glb',b'glTF')
+    delete_raw_dataset(db,raw.id,storage)
+    assert db.query(ProcessedDataset).count() == 0
+    assert db.query(RawDataset).count() == 0
+    assert not list(tmp_path.glob('*/processed/*'))
+    assert not storage.objects
+
+
+def test_active_processing_blocks_deletion_without_removing_files():
+    db, storage = in_memory_session(), FakeObjectStore()
+    raw=create_raw_fixture_dataset(db,storage)
+    db.add(ProcessingJob(raw_dataset_id=raw.id,status="running"));db.commit()
+    before=dict(storage.objects)
+    with pytest.raises(HTTPException) as error: delete_raw_dataset(db,raw.id,storage)
+    assert error.value.status_code == 409
+    assert storage.objects == before
+    assert db.get(type(raw),raw.id)
