@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from app.models.tables import ProcessedDataset, ProcessedAsset, RawDataset, Annotation
 from app.services.sea_levels import summarize_references, processed_sounding_reference
 from app.services.processed_export import record_export
+from app.services.tile_seams import join_tile_edges, SEAM_VERSION
 
 
 def combine_datasets(ids, db, storage):
@@ -41,9 +42,9 @@ def combine_datasets(ids, db, storage):
         sources.append(dataset)
         origins.append(np.asarray(origin, dtype=float))
     revisions = {source.id:(source.viewer_config_json or {}).get("revision", "legacy") for source in sources}
-    if existing and (existing.viewer_config_json or {}).get("source_revisions") == revisions and (existing.viewer_config_json or {}).get('sounding_reference_version')==2:
+    if existing and (existing.viewer_config_json or {}).get("source_revisions") == revisions and (existing.viewer_config_json or {}).get('sounding_reference_version')==2 and 'continuous_surface_version' not in (existing.viewer_config_json or {}) and existing.processing_version != 'combined-supported-grid-v2' and (existing.viewer_config_json or {}).get('tile_seam_version')==SEAM_VERSION:
         return {"dataset_id":result_id}
-    revision_key = hashlib.sha256(json.dumps({"sources":revisions,"sounding_reference_version":2}, sort_keys=True).encode()).hexdigest()[:16]
+    revision_key = hashlib.sha256(json.dumps({"sources":revisions,"sounding_reference_version":2,"tile_seam_version":SEAM_VERSION}, sort_keys=True).encode()).hexdigest()[:16]
     anchor = origins[0]
     offsets = [origin - anchor for origin in origins]
     for dataset, offset in zip(sources, offsets):
@@ -57,8 +58,27 @@ def combine_datasets(ids, db, storage):
             raise HTTPException(422, "Cell mesh contains no surface")
         mesh.apply_translation([float(offset[0]), float(offset[1]), 0])
         meshes.append(mesh)
+    from app.api.survey import load_replay
+    ref_points=[]
+    measured_parts=[]
+    tiles=[]
+    replay_ids=set()
+    for source,offset in zip(sources,offsets):
+        data=processed_sounding_reference(source,db,storage,load_replay)
+        translated=[[p[0]+float(offset[0]),p[1]+float(offset[1]),*p[2:]] for p in data.get('points',[])]
+        ref_points.extend(translated)
+        measured_parts.append([p[:3] for p in translated])
+        raw_source=db.get(RawDataset,source.raw_dataset_id) if source.raw_dataset_id else None
+        metadata=(raw_source.metadata_json or {}) if raw_source else {}
+        snapshot=(source.viewer_config_json or {}).get("block_snapshot") or metadata.get("block",{})
+        size=snapshot.get("size")
+        replay_ids.add(metadata.get("replay_id"))
+        valid=isinstance(size,int) and 10<=size<=200 and np.allclose(offset,np.round(offset),rtol=0,atol=1e-6)
+        tiles.append((int(round(offset[0])),int(round(offset[1])),size) if valid else None)
     mesh = trimesh.util.concatenate(meshes)
-    # Keep measured mesh topology; there are no new faces across tile boundaries.
+    seam_faces=0
+    if len(replay_ids)==1 and None not in replay_ids:
+        mesh,seam_faces=join_tile_edges(meshes,tiles,measured_parts)
     csv = io.StringIO()
     np.savetxt(csv, mesh.vertices, delimiter=",", header="x,y,z", comments="", fmt="%.6f")
     area = float(mesh.area)
@@ -72,19 +92,14 @@ def combine_datasets(ids, db, storage):
         processing_version="combined-existing-meshes-v1",
         coordinate_system_json={**sources[0].coordinate_system_json, "projected_origin": anchor.tolist(),
             "sea_level_reference":summarize_references([s.coordinate_system_json.get("sea_level_reference") or {} for s in sources],sum((s.coordinate_system_json.get("sea_level_reference") or {}).get("total_soundings",0) for s in sources)) if all(s.coordinate_system_json.get("sea_level_reference") for s in sources) else None},
-        quality_report_json={"source_dataset_ids": ids, "notes": ["Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."]},
+        quality_report_json={"source_dataset_ids": ids, "notes": [f"Original high-resolution surfaces retained unchanged; {seam_faces} connecting faces added only at narrow, measurement-supported tile joins. Wider gaps preserved. Classes remain provisional."]},
         metrics_json={"surface_area": area, "planar_area": planar, "rugosity": area / planar if planar else None},
-        viewer_config_json={"source_dataset_ids": ids, "source_revisions":revisions,"primary": "mesh_glb","sounding_reference_version":2})
+        viewer_config_json={"source_dataset_ids": ids, "source_revisions":revisions,"primary": "mesh_glb","sounding_reference_version":2,"tile_seam_version":SEAM_VERSION,"tile_seam_faces":seam_faces})
     result = existing or ProcessedDataset(id=result_id)
     assets = [("mesh.glb", mesh.export(file_type="glb"), "model/gltf-binary", "mesh_glb"),
               ("point_cloud.xyz.csv", csv.getvalue().encode(), "text/csv", "point_cloud_xyz"),
               ("mesh.ply", mesh.export(file_type="ply"), "application/octet-stream", "mesh_ply"),
               ("mesh.obj", mesh.export(file_type="obj").encode(), "text/plain", "mesh_obj")]
-    from app.api.survey import load_replay
-    ref_points=[]
-    for source,offset in zip(sources,offsets):
-        data=processed_sounding_reference(source,db,storage,load_replay)
-        ref_points.extend([[p[0]+float(offset[0]),p[1]+float(offset[1]),*p[2:]] for p in data.get('points',[])])
     reference_data={'version':2,'points':ref_points,'waterline_offset_m':None,'msl_offset_m':None,'source':'Combined per-sounding vertical distances'}
     assets.append(('sounding_references.json',json.dumps(reference_data).encode(),'application/json','sounding_references'))
     written, old_keys = [], []

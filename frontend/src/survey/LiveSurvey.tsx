@@ -1,8 +1,10 @@
+import {createPlaybackSnapshot} from './playbackSnapshot';
+import { Loading, watchLoading, uploadRecording } from './loading';
 import { motionAt, MotionSample } from './motion';
 import { confirmedFetch, clearOverwriteApprovals, approveOverwrite, approveRunKey } from '../api/confirm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getJson, postJson, assetUrl } from '../api/client';
-import { Block, Replay, canProcess, snapshot, needsProcessing } from './model';
+import { Block, Replay, canProcess, needsProcessing } from './model';
 import SurveyMap from './SurveyMap';
 import CompletedResults from './CompletedResults';
 import { MAX_SELECTED_CELLS, toggleCell } from './selection';
@@ -17,6 +19,14 @@ function savedJobs(id:string,size:number):Record<string,Job>{
 
 export default function LiveSurvey({visible,openProcessed,openArea,refresh,archived=false}:{archived?:boolean;visible:boolean;openProcessed:(id:string)=>void;openArea:(ids:string[])=>void|Promise<void>;refresh:()=>void}) {
   const [motionSamples,setMotionSamples]=useState<MotionSample[]>([]),[motionStatus,setMotionStatus]=useState('No recording loaded');
+  const restoreCursor=useRef(false);
+  const uploadAbort=useRef<AbortController|null>(null);
+  const recordingInput=useRef<HTMLInputElement|null>(null);
+  useEffect(()=>()=>{uploadAbort.current?.abort();},[]);
+  const [loading,setLoading]=useState<Loading|null>(null);
+  const [uploadLimit,setUploadLimit]=useState(2*1024**3);
+  useEffect(()=>{getJson('/api/survey/configuration').then(c=>{if(c.upload_limit_bytes>0)setUploadLimit(c.upload_limit_bytes);}).catch(()=>{});},[]);
+  const updateLoading=(value:Loading)=>setLoading(old=>({...value,percent:value.percent===0?0:Math.max(old?.percent||0,value.percent)}));
   const [surveyName,setSurveyName]=useState('');
   const [selectedFilename,setSelectedFilename]=useState('');
   const [replay,setReplay]=useState<Replay|null>(null), [busy,setBusy]=useState(false), [error,setError]=useState('');
@@ -31,7 +41,8 @@ export default function LiveSurvey({visible,openProcessed,openArea,refresh,archi
   useEffect(()=>{if(archived){setPlaying(false);setAuto(false);setRunStarted(false);}},[archived]);
   useEffect(()=>{setSelectedCells([]);setMultiSelect(false);},[replay?.id,size]);
   const inFlight=useRef(false), generation=useRef(0), runApproved=useRef(false);
-  const state=useMemo(()=>replay?snapshot(replay,Math.floor(cursor),size):empty,[replay,Math.floor(cursor),size]);
+  const playbackSnapshot=useMemo(()=>replay?createPlaybackSnapshot(replay,size):null,[replay,size]);
+  const state=useMemo(()=>playbackSnapshot?playbackSnapshot(Math.floor(cursor)):empty,[playbackSnapshot,Math.floor(cursor)]);
   const block=state.blocks.find(b=>b.key===selected);
   const stamp=replay?new Date(Date.parse(replay.started_at)+cursor*1000):null;
   const day=stamp?.toISOString().slice(0,10);
@@ -69,22 +80,27 @@ export default function LiveSurvey({visible,openProcessed,openArea,refresh,archi
   }
 
   async function load(file:File) {
+    if(file.size>uploadLimit){setError(`Maximum file size is ${uploadLimit/1024**3} GB.`);return;}
+    restoreCursor.current=false;
     setSelectedFilename(file.name);
     runApproved.current=false;clearOverwriteApprovals();setBusy(true);setPlaying(false);setError('');
     try {
       const fd=new FormData();fd.append('file',file);fd.append('survey_name',surveyName);
-      const response=await confirmedFetch(assetUrl('/api/survey/replays'),{method:'POST',body:fd});
-      if(!response.ok) throw new Error(await response.text());
-      const next=await response.json();
+      const controller=new AbortController();uploadAbort.current=controller;
+      const next=await uploadRecording(fd,value=>{if(!controller.signal.aborted)updateLoading(value);},controller.signal);
+      if(controller.signal.aborted)return;
       generation.current++;setReplay(next);setCursor(0);setSelected('');setJobs({});setAuto(false);setConditions(null);setRunStarted(false);setCompletedCells([]);setFreshRun(true);
       try {localStorage.setItem('reef-survey-replay',next.id);}catch{}
-    }catch(e){setError(errorText(e));}finally{setBusy(false);}
+      setLoading({percent:100,stage:'Survey ready'});
+    }catch(e){setLoading(null);setError(errorText(e));}finally{setBusy(false);}
   }
   useEffect(()=>{
     let cancelled=false;
     let id:string|null=null;try{id=localStorage.getItem('reef-survey-replay');}catch{}
-    if(id){setBusy(true);getJson(`/api/survey/replays/${id}`).then(r=>{if(!cancelled){setReplay(r);setSelectedFilename(r.source_name||r.name);setJobs(savedJobs(r.id,50));setFreshRun(localStorage.getItem(`reef-survey-fresh:${r.id}:50`)==='true');}}).catch(()=>{if(!cancelled)setError('Previous replay is unavailable. Load a recording to begin.');}).finally(()=>{if(!cancelled)setBusy(false);});}
-    return()=>{cancelled=true;};
+    const progressId=crypto.randomUUID();
+    const stop=id?watchLoading(progressId,updateLoading):()=>{};
+    if(id){setLoading({percent:0,stage:'Loading previous survey'});setBusy(true);getJson(`/api/survey/replays/${id}?lightweight=true&progress_id=${progressId}`).then(r=>{if(!cancelled){setLoading({percent:100,stage:'Survey ready'});restoreCursor.current=true;setReplay(r);setSelectedFilename(r.source_name||r.name);setJobs(savedJobs(r.id,50));setFreshRun(localStorage.getItem(`reef-survey-fresh:${r.id}:50`)==='true');}}).catch(()=>{if(!cancelled){setLoading(null);setError('Previous replay is unavailable. Load a recording to begin.');}}).finally(()=>{stop();if(!cancelled)setBusy(false);});}
+    return()=>{cancelled=true;stop();};
   },[]);
   useEffect(()=>{if(replay){try{localStorage.setItem(`reef-survey-jobs:${replay.id}:${size}`,JSON.stringify(jobs));}catch{}}},[replay?.id,size,jobs]);
   useEffect(()=>{
@@ -110,7 +126,10 @@ export default function LiveSurvey({visible,openProcessed,openArea,refresh,archi
   useEffect(()=>{
     if(!replay)return;
     let cancelled=false;
-    getJson(`/api/survey/replays/${replay.id}/processed-blocks`).then(data=>{if(!cancelled)setCompletedCells(Array.isArray(data)?data:[]);}).catch(e=>{if(!cancelled)setError(`Cannot restore completed map cells: ${errorText(e)}`);});
+    getJson(`/api/survey/replays/${replay.id}/processed-blocks`).then(data=>{if(!cancelled){
+      const cells=Array.isArray(data)?data:[];setCompletedCells(cells);
+      if(restoreCursor.current){restoreCursor.current=false;if(!freshRun&&cells.length)setCursor(Math.min(replay.duration,Math.max(...cells.map((c:any)=>c.until||0))));}
+    }}).catch(e=>{if(!cancelled)setError(`Cannot restore completed map cells: ${errorText(e)}`);});
     return()=>{cancelled=true;};
   },[replay?.id,completionKey]);
   const mapJobs=useMemo(()=>{
@@ -191,21 +210,27 @@ export default function LiveSurvey({visible,openProcessed,openArea,refresh,archi
     return value===null||value===undefined?'Unavailable':`${value} ${data.units?.[key]||''}`;
   }
   return <div className="live-survey">
-    <div className="survey-heading"><div><h2>Live Survey</h2><p>BlueBoat recording playback · fixed metre grid · partial coverage preserved</p></div>
-      <label>Survey name (optional)<input aria-label="Survey name" placeholder="Use recording filename" value={surveyName} onChange={e=>setSurveyName(e.target.value)} disabled={busy||active||importing}/></label>
-      <label className="survey-file">{busy?'Decoding recording…':'Load SonarView recording'}<input aria-label="Load SonarView recording" type="file" accept=".svlz,.svlog" disabled={busy||importing||active} onChange={e=>{if(e.target.files?.[0])void load(e.target.files[0]);e.target.value='';}}/>{selectedFilename&&<small className="survey-selected-file">Selected file: {selectedFilename}</small>}</label>
+    <div className="survey-heading"><div className="survey-title-row"><div><h2>Live Survey</h2><p>BlueBoat recording playback · fixed metre grid · partial coverage preserved</p></div>
+      {loading&&<div className="survey-loading" role="status"><span>{loading.stage}: {Math.floor(loading.percent)}%{loading.percent<100?' (estimated)':''}</span><progress aria-label="Survey loading progress" max={100} value={loading.percent}/></div>}
     </div>
-    {error&&<p role="alert" className="survey-warning">{error}</p>}
-    <div className="survey-controls">
+    <div className="survey-name-row"><label>Survey name (optional)<input aria-label="Survey name" placeholder="Use recording filename" value={surveyName} onChange={e=>setSurveyName(e.target.value)} disabled={busy||active||importing}/></label></div>
+    <div className="survey-upload-row">
+      <div className="survey-recording-input"><div className="survey-file">{busy?'Decoding recording…':'Load SonarView recording'}<input ref={recordingInput} className="survey-native-file" aria-label="Load SonarView recording" type="file" accept=".svlz,.svlog" disabled={busy||importing||active} onChange={e=>{if(e.target.files?.[0])void load(e.target.files[0]);e.target.value='';}}/><button type="button" className={`survey-file-button${selectedFilename?' is-selected':''}`} disabled={busy||importing||active} onClick={()=>recordingInput.current?.click()}>{selectedFilename?'File selected':'Choose file'}</button>{selectedFilename&&<small className="survey-selected-file">Selected file: {selectedFilename}</small>}</div>
+      <small>Maximum file size: {uploadLimit/1024**3} GB (.svlz / .svlog)</small></div>
+    <div className="survey-controls survey-playback-controls">
       <button disabled={!replay||busy} onClick={togglePlayback}>{playing?'Pause':'Play & process'}</button>
       <button disabled={!replay||importing||active} onClick={resetRun}>Reset processing run</button>
       <label>Speed <select aria-label="Playback speed" value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[1,5,10,30,60].map(s=><option key={s} value={s}>{s}×</option>)}</select></label>
       <label>Grid <select aria-label="Grid size" value={size} disabled={importing||active} onChange={e=>{generation.current++;const next=Number(e.target.value);setSize(next);setJobs(replay?savedJobs(replay.id,next):{});setFreshRun(replay?localStorage.getItem(`reef-survey-fresh:${replay.id}:${next}`)==='true':false);setSelected('');setAuto(false);setRunStarted(false);}}>{[25,50,100,200].map(s=><option key={s} value={s}>{s} × {s} m</option>)}</select></label>
       <label><input type="checkbox" checked={auto} onChange={e=>setAuto(e.target.checked)}/> Auto-process ready blocks</label>
     </div>
+    </div>
+    </div>
+    {error&&<p role="alert" className="survey-warning">{error}</p>}
     {replay&&<p className="survey-note" role="status">
+      <strong>{playing?'Playing':cursor>=replay.duration?'Playback finished':'Playback paused'} {Math.floor(100*cursor/Math.max(1,replay.duration))}% ({Math.floor(cursor)} / {replay.duration} s)</strong><br/>
       {state.blocks.filter(b=>mapJobs[b.key]?.status==='completed' && mapJobs[b.key]?.until>=b.last).length} / {state.blocks.length} received cells processed | {state.blocks.filter(b=>!canProcess(b)).length} too sparse for a surface | {Object.values(jobs).filter(j=>j.status==='failed').length} failed
-      {cursor>=replay.duration && auto && (active||importing||state.blocks.some(b=>needsProcessing(b,jobs[b.key],cursor,replay.duration)))?' | Playback finished; processing remaining cells...':''}
+      {cursor>=replay.duration && auto && (active||importing||state.blocks.some(b=>needsProcessing(b,jobs[b.key],cursor,replay.duration)))?' | Processing remaining cells...':playing&&!active&&!importing?' | Collecting measurements; partial cells finish processing at the end.':''}
     </p>}
     <div className="survey-timeline"><input aria-label="Playback position" type="range" min="0" max={replay?.duration||1} value={cursor} step="1" disabled={!replay||importing} onChange={e=>{setCursor(Number(e.target.value));setPlaying(false);setAuto(false);}}/><time>{stamp?stamp.toISOString().replace('T',' ').slice(0,19)+' UTC':'Load a recording to begin'}</time></div>
     <div className="survey-controls">

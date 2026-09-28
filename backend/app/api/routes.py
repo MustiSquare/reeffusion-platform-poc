@@ -200,6 +200,13 @@ def proc_list(db: Session=Depends(get_db)): return [ds_summary(x) for x in db.qu
 def proc_get(dataset_id: str, db: Session=Depends(get_db)):
     d=db.get(ProcessedDataset,dataset_id)
     if not d: raise HTTPException(404)
+    config=d.viewer_config_json or {}
+    if config.get("source_dataset_ids"):
+        from app.services.combined_survey import combine_datasets
+        from app.services.tile_seams import SEAM_VERSION
+        if "continuous_surface_version" in config or d.processing_version == "combined-supported-grid-v2" or config.get("tile_seam_version") != SEAM_VERSION:
+            combine_datasets(config["source_dataset_ids"],db,store())
+            db.refresh(d)
     return {**ds_summary(d),"viewer_config":d.viewer_config_json,"assets":[{"id":a.id,"file_name":a.file_name,"asset_type":a.asset_type,"media_type":a.media_type,"metadata":a.metadata_json,"url":f"/api/assets/{a.id}"} for a in d.assets]}
 
 @router.delete("/datasets/processed/{dataset_id}")

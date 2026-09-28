@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="475" height="642.5" viewBox="16.25 8.25 47.5 64.25">
+  <defs>
+    <linearGradient id="hull" x1="0" x2="1"><stop stop-color="#163f94"/><stop offset=".4" stop-color="#4b92ef"/><stop offset=".75" stop-color="#3366cc"/><stop offset="1" stop-color="#174395"/></linearGradient>
+    <linearGradient id="deck" x2="0" y2="1"><stop stop-color="#64748b"/><stop offset="1" stop-color="#152435"/></linearGradient>
+  </defs>
+  <!-- Stylised BlueBoat, bow facing north. Hull centres straddle the navigation anchor. -->
+  <g stroke="#f0f9ff" stroke-width="1.5" stroke-linejoin="round">
+    <path d="M17 64V24Q17 14 23 9Q29 14 29 24v40q0 5-6 5t-6-5Z" fill="url(#hull)"/>
+    <path d="M51 64V24Q51 14 57 9Q63 14 63 24v40q0 5-6 5t-6-5Z" fill="url(#hull)"/>
+  </g>
+  <g fill="#26384c" stroke="#a8baca" stroke-width="1">
+    <rect x="22" y="29" width="36" height="5" rx="1.5"/>
+    <rect x="22" y="52" width="36" height="5" rx="1.5"/>
+  </g>
+  <g fill="url(#deck)" stroke="#0f233f" stroke-width="1">
+    <rect x="19" y="34" width="8" height="16" rx="3"/>
+    <rect x="53" y="34" width="8" height="16" rx="3"/>
+  </g>
+  <path d="M27 40h13v13" fill="none" stroke="#0f233f" stroke-width="2"/>
+  <rect x="35" y="37" width="10" height="9" rx="2" fill="#e2e8f0" stroke="#334155"/>
+  <circle cx="40" cy="41" r="2.5" fill="#fb923c"/>
+  <path d="M57 40V24" stroke="#f1f5f9" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="57" cy="23" r="2.5" fill="#fff" stroke="#334155"/>
+  <g fill="#0f233f" stroke="#94a3b8" stroke-width="1"><rect x="20" y="67" width="6" height="5" rx="2"/><rect x="54" y="67" width="6" height="5" rx="2"/></g>
+  <circle cx="21" cy="31" r="1.5" fill="#fb7185"/><circle cx="59" cy="31" r="1.5" fill="#4ade80"/>
+</svg>

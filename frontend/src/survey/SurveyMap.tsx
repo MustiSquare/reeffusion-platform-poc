@@ -12,6 +12,7 @@ export default function SurveyMap({ replay, blocks, boat, track, selected, selec
   multiSelect?:boolean; selectedCells?:string[]; conditions?:MapConditions;
 }) {
   const host=useRef<HTMLDivElement>(null), map=useRef<L.Map|null>(null), overlay=useRef<L.FeatureGroup|null>(null);
+  const selectRef=useRef(select);selectRef.current=select;
   const [follow,setFollow]=useState(true), [showContours,setShowContours]=useState(true);
   const [tileError,setTileError]=useState(false);
   const displayBlocks=useMemo(()=>mapDisplayBlocks(blocks),[blocks]);
@@ -30,6 +31,7 @@ export default function SurveyMap({ replay, blocks, boat, track, selected, selec
     const selectionPane=m.createPane('surveySelection');
     selectionPane.style.zIndex='650';
     selectionPane.style.pointerEvents='none';
+    const soundings=m.createPane('surveySoundings');soundings.style.zIndex='450';soundings.style.pointerEvents='none';
     overlay.current=L.featureGroup().addTo(m);
     const resize=new ResizeObserver(()=>m.invalidateSize()); resize.observe(host.current);
     return ()=>{resize.disconnect();m.remove();map.current=null;};
@@ -54,13 +56,13 @@ export default function SurveyMap({ replay, blocks, boat, track, selected, selec
       const picked=multiSelect?selectedCells.includes(block.key):selected===block.key;
       const color=multiSelect&&picked?'#f472b6':current&&job.status==='completed'?'#2dd4bf':job?.status==='failed'?'#ef4444':job&&job.status!=='completed'?'#a78bfa':'#f59e0b';
       L.polygon([ll(x,y),ll(x+s,y),ll(x+s,y+s),ll(x,y+s)],{color,weight:picked?3:1,fillOpacity:picked?.25:.025})
-        .on('click',()=>select(block.key)).addTo(group);
+        .on('click',()=>selectRef.current(block.key)).addTo(group);
       if(picked) L.polygon([ll(x,y),ll(x+s,y),ll(x+s,y+s),ll(x,y+s)],{
         pane:'surveySelection',color:'#f472b6',weight:4,fillColor:'#f472b6',fillOpacity:.35,interactive:false,
       }).addTo(group);
       for(const p of block.points){
         const depth=Math.max(0,-p[2]),color=`hsl(${185+Math.min(70,depth)},80%,${65-Math.min(30,depth/3)}%)`;
-        L.circleMarker([p[4],p[3]],{radius:2,color,weight:0,fillOpacity:.85,interactive:false}).addTo(group);
+        L.circleMarker([p[4],p[3]],{pane:'surveySoundings',radius:2,color,weight:0,fillOpacity:.85,interactive:false}).addTo(group);
       }
     }
     if(showContours){
@@ -72,7 +74,7 @@ export default function SurveyMap({ replay, blocks, boat, track, selected, selec
       L.marker([boat[1],boat[0]],{icon:L.divIcon({className:'survey-boat',html:`<img src="${blueBoatSprite}" alt="BlueBoat USV" draggable="false" style="transform:rotate(${Number.isFinite(boat[2])?boat[2]:0}deg)"/>`,iconSize:[64,64],iconAnchor:[32,32]})}).bindTooltip('BlueBoat USV').addTo(group);
       if(follow&&!multiSelect) m.panTo([boat[1],boat[0]],{animate:false});
     }
-  },[replay,blocks,displayBlocks,contourSegments,boat,track,selected,jobs,follow,showContours,size,visible,select,multiSelect,selectedCells]);
+  },[replay,blocks,displayBlocks,contourSegments,boat,track,selected,jobs,follow,showContours,size,visible,multiSelect,selectedCells]);
   return <div className="survey-map-wrap">
     <div className="survey-map-viewport">
       <div className="survey-map" ref={host} aria-label="BlueBoat survey map" />

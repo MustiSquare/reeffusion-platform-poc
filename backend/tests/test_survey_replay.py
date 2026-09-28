@@ -144,3 +144,30 @@ def test_sounding_reference_averages_measurements_and_respects_cursor():
                       {'t':10,'sounding_altitudes':[[1,1,-23,21,1]]}]}
     assert sounding_reference(replay,0,0,50,0)['points']==[[1,1,-20,18]]
     assert sounding_reference(replay,0,0,50,10)['points']==[[1,1,-21,19]]
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_decode_nonseekable_recording_uses_bounded_reads(compressed):
+    data = gzip.compress(recording()) if compressed else recording()
+    class Stream:
+        def __init__(self): self.source = io.BytesIO(data)
+        def read(self, size=-1):
+            assert 0 <= size <= 1024 * 1024
+            return self.source.read(size)
+    assert decode_sonar(Stream(), "stream.svlz") == decode_sonar(data, "stream.svlz")
+
+
+def test_single_pass_motion_matches_separate_extraction():
+    from app.services.survey_motion import extract_motion
+    data = recording()
+    replay = decode_sonar(data, "motion.svlog")
+    expected = extract_motion(data, replay["started_at"])
+    assert replay["motion_summary"]["samples"] == expected["samples"]
+
+
+def test_decoder_reports_bytes_read_without_changing_results():
+    data = gzip.compress(recording())
+    counts = []
+    actual = decode_sonar(data, "progress.svlz", progress=counts.append)
+    assert sum(counts) == len(data)
+    assert actual == decode_sonar(data, "progress.svlz")

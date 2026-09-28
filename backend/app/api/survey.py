@@ -11,11 +11,13 @@ from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 import httpx
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, Form, Header
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pyproj import Transformer
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app.core.config import settings
+from app.services.loading_progress import report, read as read_progress, operation
 from app.db.session import get_db
 from app.services.sea_levels import block_reference, sounding_reference, processed_sounding_reference
 from app.services.overwrite import require_overwrite, survey_date_key, previous_processing
@@ -62,20 +64,31 @@ def retry_export(dataset_id: UUID, db: Session = Depends(get_db), _principal=Dep
 @lru_cache(maxsize=3)
 def load_replay(session_id: str):
     try:
-        replay=json.loads(store().get_bytes(f"replays/{session_id}/replay.json"))
+        storage = store()
+        key = f"replays/{session_id}/replay.json"
+        replay=json.loads(storage.get_bytes(key, progress=lambda done,total:report(15+50*done/max(1,total), "Reading saved survey")))
         if replay.get("vertical_reference_version") != 2:
             for extension in ("svlz","svlog"):
                 try:
-                    source=store().get_bytes(f"replays/{session_id}/source.{extension}")
+                    with store().open_read(f"replays/{session_id}/source.{extension}") as source:
+                        total = storage.client.head_object(Bucket=storage.bucket, Key=f"replays/{session_id}/source.{extension}")["ContentLength"]
+                        consumed = 0
+                        def advance(count):
+                            nonlocal consumed
+                            consumed += count
+                            report(65+20*min(1,consumed/max(1,total)), "Updating saved survey")
+                        decoded=decode_sonar(source,replay.get("source_name",replay["name"]), progress=advance)
                 except ClientError as exc:
                     if exc.response["Error"]["Code"] in {"NoSuchKey","404"}:continue
                     raise
-                decoded=decode_sonar(source,replay.get("source_name",replay["name"]))
                 by_time={f['t']:f for f in decoded['frames']}
                 for frame in replay['frames']:
                     frame['vertical_samples']=by_time.get(frame['t'],{}).get('vertical_samples',[])
                     frame['sounding_altitudes']=by_time.get(frame['t'],{}).get('sounding_altitudes',[])
                 replay['vertical_reference_version']=2
+                storage.put_bytes(key,json.dumps(replay,separators=(",", ":")).encode(),"application/json")
+                if decoded.get("motion_summary") is not None:
+                    storage.put_bytes(f"replays/{session_id}/motion.json",json.dumps(decoded["motion_summary"]).encode(),"application/json")
                 break
         return replay
     except ClientError as exc:
@@ -85,11 +98,41 @@ def load_replay(session_id: str):
 
 
 def save_replay(data, name, db=None, survey_name=None, overwrite=False):
+    report(25, "Checking recording")
+    is_bytes=isinstance(data,(bytes,bytearray))
+    if is_bytes:
+        digest=hashlib.sha256(data).hexdigest();magic=data[:2]
+    else:
+        data.seek(0);magic=data.read(2);data.seek(0);hasher=hashlib.sha256()
+        total = data.seek(0,2); data.seek(0); hashed = 0
+        while chunk:=data.read(8*1024*1024):
+            hasher.update(chunk); hashed += len(chunk)
+            report(25+5*hashed/max(1,total), "Checking recording")
+        digest=hasher.hexdigest();data.seek(0)
     try:
-        replay = decode_sonar(data, name)
+        cached = None
+        try:
+            index = json.loads(store().get_bytes(f"replay-cache/{digest}.json"))
+            candidate = json.loads(store().get_bytes(f"replays/{index['id']}/replay.json"))
+            if candidate.get("decoder_version") == 1 and candidate.get("source_sha256") == digest:
+                cached = candidate
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] not in {"NoSuchKey", "404"}: raise
+        except KeyError: pass
+        if cached is not None:
+            replay = cached
+        else:
+            total = len(data) if is_bytes else data.seek(0, 2)
+            if not is_bytes: data.seek(0)
+            consumed = 0
+            def advance(count):
+                nonlocal consumed
+                consumed += count
+                report(30+55*min(1,consumed/max(1,total)), "Decoding recording")
+            # Optional callback keeps existing callers and fixtures compatible.
+            replay = decode_sonar(data, name, progress=advance)
     except (ValueError, KeyError, TypeError, OverflowError) as exc:
         raise HTTPException(422, f"Cannot decode recording: {exc}") from exc
-    digest = hashlib.sha256(data).hexdigest()
     date_key = survey_date_key(replay["started_at"])
     session_id = str(uuid5(NAMESPACE_URL, f"reef-replay:{digest}:{date_key}"))
     if db is not None:
@@ -110,26 +153,61 @@ def save_replay(data, name, db=None, survey_name=None, overwrite=False):
     replay["id"] = session_id
     replay["source_sha256"] = digest
     s3 = store()
-    extension = "svlz" if data[:2] == b"\x1f\x8b" else "svlog"
-    s3.put_bytes(f"replays/{session_id}/source.{extension}", data, "application/octet-stream")
+    report(85, "Saving recording")
+    motion = replay.pop("motion_summary", None)
+    if motion is not None: s3.put_bytes(f"replays/{session_id}/motion.json", json.dumps(motion).encode(), "application/json")
+    extension = "svlz" if magic == b"\x1f\x8b" else "svlog"
+    if is_bytes:s3.put_bytes(f"replays/{session_id}/source.{extension}", data, "application/octet-stream")
+    else:s3.put_file(f"replays/{session_id}/source.{extension}", data, "application/octet-stream")
     s3.put_bytes(f"replays/{session_id}/replay.json", json.dumps(replay, separators=(",", ":")).encode(), "application/json")
+    if replay.get("decoder_version") == 1:
+        s3.put_bytes(f"replay-cache/{digest}.json", json.dumps({"id": session_id}).encode(), "application/json")
     getattr(load_replay,"cache_clear",lambda:None)()
     return replay
 
 
+def save_uploaded_replay(source,name,db,survey_name,overwrite):
+    size=source.seek(0,2);source.seek(0)
+    if size>settings.survey_upload_limit_mb*1024*1024:
+        raise HTTPException(413,f"Recording exceeds the configured {settings.survey_upload_limit_mb} MB upload limit")
+    return save_replay(source,name,db,survey_name,overwrite)
+
+
 @router.post("/replays")
-async def upload_replay(file: UploadFile = File(...), db: Session = Depends(get_db), survey_name: str = Form(default=""), overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite"), _principal=Depends(require_role("editor"))):
+async def upload_replay(file: UploadFile = File(...), db: Session = Depends(get_db), survey_name: str = Form(default=""), overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite"), progress_id: UUID | None = Query(default=None), lightweight: bool = Query(default=False), _principal=Depends(require_role("editor"))):
     if Path(file.filename or "").suffix.lower() not in {".svlz", ".svlog"}:
         raise HTTPException(422, "Choose a SonarView .svlz or .svlog recording")
-    data = await file.read(100 * 1024 * 1024 + 1)
-    if len(data) > 100 * 1024 * 1024:
-        raise HTTPException(413, "Recording exceeds 100 MB; split it in SonarView")
-    return await run_in_threadpool(save_replay, data, Path(file.filename).name, db, survey_name, overwrite)
+    with operation(progress_id):
+        result = await run_in_threadpool(save_uploaded_replay, file.file, Path(file.filename).name, db, survey_name, overwrite)
+        return await run_in_threadpool(playback_response, result) if lightweight else result
 
 
 @router.get("/replays/{session_id}")
-def get_replay(session_id: UUID):
-    return load_replay(str(session_id))
+def get_replay(session_id: UUID, progress_id: UUID | None = None, lightweight: bool = False):
+    with operation(progress_id):
+        report(15, "Reading saved survey")
+        result = load_replay(str(session_id))
+        report(90, "Preparing map")
+        return playback_response(result) if lightweight else result
+
+
+def playback_response(replay):
+    return Response(json.dumps(playback_payload(replay), separators=(",", ":")), media_type="application/json")
+
+
+def playback_payload(replay):
+    return {**{k:v for k,v in replay.items() if k not in ("frames", "motion_summary")},
+            "frames":[{k:v for k,v in f.items() if k not in ("sounding_altitudes", "vertical_samples")} for f in replay["frames"]]}
+
+
+@router.get("/loading/{identifier}")
+def loading_status(identifier: UUID):
+    return read_progress(str(identifier))
+
+
+@router.get("/configuration")
+def survey_configuration():
+    return {"upload_limit_bytes":settings.survey_upload_limit_mb*1024*1024}
 
 
 @router.get("/replays/{session_id}/processing-history")
@@ -260,7 +338,7 @@ def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get
     location = SurveyLocation(name=f"BlueBoat block {body.column}, {body.row}", latitude=lat, longitude=lon)
     db.add(location); db.flush()
     started = datetime.fromisoformat(replay["started_at"])
-    raw = RawDataset(id=dataset_id, name=f"{replay['name']} · {body.size} m block {body.column}, {body.row}",
+    raw = RawDataset(id=dataset_id, name=f"{replay['name']} Ã‚Â· {body.size} m block {body.column}, {body.row}",
                      source="survey_replay", location_id=location.id, metadata_json=metadata,
                      acquisition_started_at=started, acquisition_ended_at=started+timedelta(seconds=body.until),
                      coordinate_system_json=coordinate,
@@ -322,12 +400,19 @@ def load_motion(session_id):
     from app.services.survey_motion import extract_motion
     replay = load_replay(session_id)
     storage = store()
-    try:
-        data = storage.get_bytes(f"replays/{session_id}/source.svlz")
+    key = f"replays/{session_id}/motion.json"
+    try: return json.loads(storage.get_bytes(key))
     except ClientError as exc:
         if exc.response["Error"]["Code"] not in {"NoSuchKey","404"}: raise
-        data = storage.get_bytes(f"replays/{session_id}/source.svlog")
-    return extract_motion(data, replay["started_at"])
+    for extension in ("svlz", "svlog"):
+        try:
+            with storage.open_read(f"replays/{session_id}/source.{extension}") as source:
+                result = extract_motion(source,replay["started_at"])
+            storage.put_bytes(key,json.dumps(result).encode(),"application/json")
+            return result
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] not in {"NoSuchKey","404"}: raise
+    raise HTTPException(404,"Recording not found")
 
 
 @router.get("/replays/{session_id}/motion")
@@ -356,12 +441,56 @@ def archive_detail(survey_key: UUID,db: Session = Depends(get_db)):
     return summary
 
 
+class SurveyRename(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value):
+        value = value.strip()
+        if not 1 <= len(value) <= 30:
+            raise ValueError("Survey name must contain 1 to 30 characters")
+        return value
+
+
+@router.put("/archive/{survey_key}/name")
+def archive_rename(survey_key: UUID, body: SurveyRename, db: Session = Depends(get_db), _principal=Depends(require_role("editor"))):
+    summary = archived_survey(survey_key, db)
+    replay_ids = set()
+    for item in summary["raw"]:
+        raw = db.get(RawDataset, item["id"])
+        raw.metadata_json = {**(raw.metadata_json or {}), "survey_name":body.name}
+        if raw.metadata_json.get("replay_id"): replay_ids.add(raw.metadata_json["replay_id"])
+    if not summary["raw"]:
+        for item in summary["processed"]:
+            processed = db.get(ProcessedDataset, item["id"])
+            processed.viewer_config_json = {**(processed.viewer_config_json or {}), "survey_name":body.name}
+    for replay_id in replay_ids:
+        storage = store()
+        key = f"replays/{replay_id}/replay.json"
+        try: replay = json.loads(storage.get_bytes(key))
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in {"NoSuchKey", "404"}: continue
+            raise
+        replay["name"] = body.name
+        storage.put_bytes(key,json.dumps(replay,separators=(",", ":")).encode(),"application/json")
+    db.commit()
+    getattr(load_replay,"cache_clear",lambda:None)()
+    return {"id":str(survey_key),"name":body.name}
+
+
 @router.delete("/archive/{survey_key}")
 def archive_delete(survey_key: UUID, db: Session = Depends(get_db), confirmed: bool = Query(False), _principal=Depends(require_role("admin"))):
     if not confirmed:
         raise HTTPException(400,"Confirm permanent deletion of all survey data before proceeding")
     from app.services.dataset_cleanup import delete_archived_survey
     return delete_archived_survey(db,archived_survey(survey_key,db),store())
+
+
+@router.get("/archive/{survey_key}/coverage")
+def survey_coverage(survey_key: UUID, size: int = Query(50, ge=10, le=200), db: Session = Depends(get_db)):
+    from app.services.survey_coverage import archive_coverage
+    return archive_coverage(archived_survey(survey_key,db),db,store(),size)
 
 
 @router.get("/archive/{survey_key}/conditions")

@@ -27,41 +27,41 @@
       "d07b4177-ca98-4dce-8401-d3af77b8aa10"
     ],
     "notes": [
-      "Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."
+      "Original high-resolution surfaces retained unchanged; 572 connecting faces added only at narrow, measurement-supported tile joins. Wider gaps preserved. Classes remain provisional."
     ]
   },
   "metrics": {
-    "surface_area": 8775.811174533505,
-    "planar_area": 3744.645685061996,
-    "rugosity": 2.343562492318472
+    "surface_area": 8960.951996052478,
+    "planar_area": 3768.947253535881,
+    "rugosity": 2.3775742649743
   },
   "source_metadata": null,
   "files": [
     {
+      "name": "mesh.ply",
+      "size_bytes": 309074,
+      "sha256": "da5eee8884cae04c1bab64c8c97537190b428fd0fb65848ffebd2955b380936f",
+      "asset_type": "mesh_ply",
+      "asset_id": "353e6442-9865-4438-91be-46128e9ed0fb"
+    },
+    {
       "name": "mesh.glb",
-      "size_bytes": 283400,
-      "sha256": "7398ca2ebe7c6cffa61ab54038793e0901b76c89c2e0c8d7c34858a65c1d4d3b",
+      "size_bytes": 293760,
+      "sha256": "4582481d4a287f076394e0eb404a505532803c4c1a326076676235d938f8d5b8",
       "asset_type": "mesh_glb",
       "asset_id": "5838af8d-551e-4957-a931-b48b42da007c"
     },
     {
       "name": "point_cloud.xyz.csv",
-      "size_bytes": 251961,
-      "sha256": "b97b66972ea4a75292847c0d94148293161e3118558b8a773d2ac8bc4c761b11",
+      "size_bytes": 260961,
+      "sha256": "e38ef396a3a52cf813afc521292af44283ff8f9984b70332610add77a8a5e40a",
       "asset_type": "point_cloud_xyz",
       "asset_id": "6f88382a-33c1-45b4-891c-70e726da6726"
     },
     {
-      "name": "mesh.ply",
-      "size_bytes": 298146,
-      "sha256": "063653ecfb673d008505450134a78ed81599f76d669711ed63c3d78d3e44c76f",
-      "asset_type": "mesh_ply",
-      "asset_id": "353e6442-9865-4438-91be-46128e9ed0fb"
-    },
-    {
       "name": "mesh.obj",
-      "size_bytes": 572183,
-      "sha256": "9f2a7685ff5523bc9f66875dee775c4810ba51a2f96b5d2a093572a1f23373f3",
+      "size_bytes": 593213,
+      "sha256": "a216e592b8fb19946a47280cce4c27bd236ed49737ca09060459805c294009f1",
       "asset_type": "mesh_obj",
       "asset_id": "95297d05-8585-4236-b1f8-0f6bca4d97ad"
     },

@@ -41,43 +41,22 @@
       "f252ed60-a8f9-4080-a4b5-de787ec3f548"
     ],
     "notes": [
-      "Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."
+      "Original high-resolution surfaces retained unchanged; 3402 connecting faces added only at narrow, measurement-supported tile joins. Wider gaps preserved. Classes remain provisional."
     ]
   },
   "metrics": {
-    "surface_area": 30582.123939764584,
-    "planar_area": 27192.751830049976,
-    "rugosity": 1.124642483074078
+    "surface_area": 31155.10830569413,
+    "planar_area": 27462.579435380394,
+    "rugosity": 1.1344567388144395
   },
   "source_metadata": null,
   "files": [
     {
       "name": "mesh.glb",
-      "size_bytes": 1261560,
-      "sha256": "82398a54f9e82bdab56e580e36c9afbbec91c8ec996b3b3e80578ae5dbc0d3a8",
+      "size_bytes": 1323264,
+      "sha256": "0527decaa4accbd3d97137494872403f350f5e011245b92e38b21202622232d9",
       "asset_type": "mesh_glb",
       "asset_id": "23f978f8-7d92-43d8-822f-9a7d30cd8a1a"
-    },
-    {
-      "name": "point_cloud.xyz.csv",
-      "size_bytes": 1188943,
-      "sha256": "efaa9de72f7e6292f8075f4773a5e19888c64efdef8f0bd46819024980785113",
-      "asset_type": "point_cloud_xyz",
-      "asset_id": "bf04c269-7ba7-4af4-9ef2-0637a6d69b70"
-    },
-    {
-      "name": "mesh.ply",
-      "size_bytes": 1329164,
-      "sha256": "d40c2a8ee83e3e39dc162a58328121462dc38d9b5929468d4aa787d2c5110f72",
-      "asset_type": "mesh_ply",
-      "asset_id": "b7eb48ce-8364-4eb9-8810-83fe70ff9695"
-    },
-    {
-      "name": "mesh.obj",
-      "size_bytes": 2785781,
-      "sha256": "4db99809dcd1e57e4c4e8829aae40b8eb9af5f1f08e942388f7edb09422b2548",
-      "asset_type": "mesh_obj",
-      "asset_id": "a3e529b3-ea72-4266-8ea4-7f401a594931"
     },
     {
       "name": "sounding_references.json",
@@ -85,6 +64,27 @@
       "sha256": "ab052332092426ddeb340ddf8b171dd0b93348b5a7b38e3c70a362d903f08a05",
       "asset_type": "sounding_references",
       "asset_id": "82d79138-7947-429c-8545-fa69b5ea0df3"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 2922379,
+      "sha256": "09494f8b7f64b0e0d07991e91a351c9b35ffe5b6f512dec2ac2ac9b18b5bc477",
+      "asset_type": "mesh_obj",
+      "asset_id": "a3e529b3-ea72-4266-8ea4-7f401a594931"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 1394270,
+      "sha256": "31def3c8a5234db982c6d1a8c511420efb83a619bdf85b8a09bdfeec23d3e966",
+      "asset_type": "mesh_ply",
+      "asset_id": "b7eb48ce-8364-4eb9-8810-83fe70ff9695"
+    },
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 1245003,
+      "sha256": "6cbcd2f7fe5704d2eab7bd3036f051b05cb41945aff2fbb20585670dea06d0d6",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "bf04c269-7ba7-4af4-9ef2-0637a6d69b70"
     }
   ]
 }

@@ -7,7 +7,7 @@ import LiveSurvey from './LiveSurvey';
 
 const mocks=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),openArea:vi.fn()}));
 vi.mock('../api/client',()=>({getJson:mocks.get,postJson:mocks.post,assetUrl:(s:string)=>s}));
-vi.mock('./SurveyMap',()=>({default:({blocks,select,jobs}:any)=><div><output data-testid="map-jobs">{JSON.stringify(jobs)}</output>{blocks.map((b:any)=><button key={b.key} onClick={()=>select(b.key)}>Select block {b.key}</button>)}</div>}));
+vi.mock('./SurveyMap',()=>({default:({blocks,select,jobs}:any)=><div><output data-testid="map-point-count">{blocks.reduce((n:number,b:any)=>n+b.points.length,0)}</output><output data-testid="map-jobs">{JSON.stringify(jobs)}</output>{blocks.map((b:any)=><button key={b.key} onClick={()=>select(b.key)}>Select block {b.key}</button>)}</div>}));
 const replay={id:'test',name:'boat.svlz',started_at:'2026-07-10T20:00:00Z',duration:10,crs:'EPSG:32605',point_count:5,warnings:['Recovered incomplete recording'],frames:[
   {t:0,boat:[-155.9,20.18,90,0,0],points:[[1,1,-2,0,0,1]]},
   {t:10,boat:[-155.9,20.18,90,0,0],points:[[2,1,-2,0,0,1],[1,2,-2,0,0,1],[2,2,-2,0,0,1]]},
@@ -42,6 +42,10 @@ describe('Live Survey controls',()=>{
     mocks.get.mockImplementation(async(path:string)=>path.endsWith('/processed-blocks')?[saved]:path.includes('/replays/')?replay:{});
     render(<LiveSurvey visible openArea={mocks.openArea} refresh={()=>{}} openProcessed={()=>{}}/>);
     await screen.findByText('boat.svlz');await act(async()=>{});
+    expect(screen.getByLabelText('Playback position')).toHaveValue('10');
+    expect(screen.getByTestId('map-point-count')).toHaveTextContent('4');
+    expect(screen.getByText(/1 \/ 1 received cells processed/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Playback position'),{target:{value:'0'}});
     expect(screen.getByText(/0 \/ 1 received cells processed/)).toBeInTheDocument();
     expect(screen.getByTestId('map-jobs')).toHaveTextContent('{}');
     fireEvent.change(screen.getByLabelText('Playback position'),{target:{value:'10'}});

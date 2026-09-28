@@ -32,7 +32,7 @@ export function ArchiveConditions({id}: {id:string}){
   </>}</div>;
 }
 
-export function CellMap({cells,selected,onCell,compact=false}:any){
+export function CellMap({cells,selected,onCell,compact=false,coverage=[]}:any){
   const host=useRef<HTMLDivElement>(null),map=useRef<L.Map|null>(null),layer=useRef<L.FeatureGroup|null>(null),callback=useRef(onCell);
   callback.current=onCell;
   const [tileError,setTileError]=useState(false);
@@ -41,6 +41,7 @@ export function CellMap({cells,selected,onCell,compact=false}:any){
     const m=L.map(host.current,{preferCanvas:true}).setView([0,0],2);map.current=m;
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).on('tileerror',()=>setTileError(true)).addTo(m);
     const pane=m.createPane('archiveSelection');pane.style.zIndex='650';pane.style.pointerEvents='none';
+    const soundings=m.createPane('archiveSoundings');soundings.style.zIndex='450';soundings.style.pointerEvents='none';
     layer.current=L.featureGroup().addTo(m);
     const resize=new ResizeObserver(()=>m.invalidateSize());resize.observe(host.current);
     return()=>{resize.disconnect();m.remove();map.current=null;};
@@ -59,7 +60,11 @@ export function CellMap({cells,selected,onCell,compact=false}:any){
       p.on('click',()=>callback.current(c));
       if(selected.includes(c.dataset_id))L.polygon(points,{pane:'archiveSelection',interactive:false,color:'#ff4ea0',weight:4,fillOpacity:.45}).addTo(layer.current!);
     });
-  },[cells,selected]);
+    for(const point of coverage){
+      const depth=Math.max(0,-point[2]);
+      L.circleMarker([point[1],point[0]],{pane:'archiveSoundings',radius:2,color:`hsl(${185+Math.min(70,depth)},80%,${65-Math.min(30,depth/3)}%)`,weight:0,fillOpacity:.85,interactive:false}).addTo(layer.current!);
+    }
+  },[cells,selected,coverage]);
   return <><div ref={host} style={{height:compact?230:540,borderRadius:12,margin:'12px 0'}} aria-label="Archived survey cells map"/>{tileError&&<small>Basemap unavailable; survey cells remain selectable.</small>}</>;
 }
 
@@ -67,6 +72,12 @@ export default function ArchiveExplorer({survey,selected,setSelected,open,openAr
   const [size,setSize]=useState<number>(),[multi,setMulti]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   useEffect(()=>{setSize(survey.cells.find((c:any)=>selected.includes(c.dataset_id))?.size??survey.grids[0]?.size);setError('');},[survey.id,compact]);
   const grid=size??survey.grids[0]?.size;
+  const [coverage,setCoverage]=useState<any>(null),[coverageError,setCoverageError]=useState('');
+  useEffect(()=>{
+    let cancelled=false;setCoverage(null);setCoverageError('');
+    if(grid!=null)getJson(`/api/survey/archive/${survey.id}/coverage?size=${grid}`).then(data=>{if(!cancelled)setCoverage(data);}).catch(()=>{if(!cancelled)setCoverageError('Measured point coverage unavailable.');});
+    return()=>{cancelled=true;};
+  },[survey.id,grid]);
   const cells=(survey.cells||[]).filter((c:any)=>c.size===grid);
   async function click(c:any){
     if(!c.dataset_id){setError('This cell has not been processed yet.');return;}
@@ -92,7 +103,9 @@ export default function ArchiveExplorer({survey,selected,setSelected,open,openAr
     </div>
     {error&&<p role="alert">{error}</p>}
     <p>Teal: processed · Amber: not processed · Pink: selected. Click a processed cell to {multi&&!compact?'select it':'open it in the processed viewer'}.</p>
-    {cells.some((c:any)=>c.footprint)?<CellMap cells={cells} selected={selected} onCell={busy?()=>{}:click} compact={compact}/>:<p>Cell footprints unavailable for this dataset.</p>}
+    {cells.some((c:any)=>c.footprint)?<CellMap cells={cells} selected={selected} onCell={busy?()=>{}:click} compact={compact} coverage={coverage?.points||[]}/>:<p>Cell footprints unavailable for this dataset.</p>}
+    <small>{coverageError||(!coverage?'Loading measured point coverage...':`Measured point coverage: ${coverage.total_points?.toLocaleString()??0} points${coverage.sampled?' (sampled map preview)':''}.`)}</small>
+    {coverage?.warnings?.map((warning:string)=><small key={warning}>{warning}</small>)}
     {!compact&&<ArchiveConditions id={survey.id}/>}
   </div>;
 }

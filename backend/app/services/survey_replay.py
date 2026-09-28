@@ -14,7 +14,9 @@ from datetime import datetime, timezone
 
 from pyproj import Transformer
 
-MAX_DECOMPRESSED = 512 * 1024 * 1024
+from app.core.config import settings
+
+MAX_DECOMPRESSED = settings.survey_decompressed_limit_mb * 1024 * 1024
 MAX_POINTS = 500_000
 
 
@@ -56,9 +58,32 @@ def rotate(vector, roll, pitch, yaw):
     return cy*x-sy*y, sy*x+cy*y, z
 
 
-def decode_sonar(data: bytes, filename: str) -> dict:
+def recording_stream(data):
+    """Read bytes or a streaming file without materializing the whole recording."""
+    source=io.BytesIO(data) if isinstance(data,(bytes,bytearray)) else data
+    prefix=source.read(2)
+    class PrefixedReader:
+        def __init__(self):self.prefix=prefix
+        def read(self,size=-1):
+            if size<0:
+                first=self.prefix;self.prefix=b'';return first+source.read()
+            first=self.prefix[:size];self.prefix=self.prefix[size:]
+            return first+source.read(size-len(first))
+    stream=PrefixedReader()
+    return gzip.GzipFile(fileobj=stream) if prefix==b'\x1f\x8b' else stream
+
+
+def decode_sonar(data, filename: str, progress=None) -> dict:
     warnings, frames, counts = [], {}, Counter()
-    stream = gzip.GzipFile(fileobj=io.BytesIO(data)) if data[:2] == b"\x1f\x8b" else io.BytesIO(data)
+    source = io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data
+    class CountedReader:
+        def read(self, size=-1):
+            value = source.read(size)
+            if progress: progress(len(value))
+            return value
+    stream = recording_stream(CountedReader())
+    from app.services.survey_motion import MotionAccumulator
+    motion_accumulator = MotionAccumulator()
     session, nav, attitude, projection, inverse = {}, None, None, None, None
     epoch, boot_anchor, start, epsg = None, None, None, None
     pending = {}
@@ -69,6 +94,7 @@ def decode_sonar(data: bytes, filename: str) -> dict:
         nonlocal start
         if start is None:
             start = stamp
+            motion_accumulator.set_start(stamp)
         second = max(0, int(stamp - start))
         if second > 86400:
             raise ValueError("Recording exceeds one day or has inconsistent clocks")
@@ -82,9 +108,11 @@ def decode_sonar(data: bytes, filename: str) -> dict:
                 warnings.append("Additional session encountered; replay stops at the session boundary.")
                 break
             session = config
+            motion_accumulator.session(config)
             epoch = datetime.fromisoformat(session["timestamp"].replace("Z", "+00:00")).timestamp()
         elif kind == 150:
             msg = json.loads(payload).get("message", {})
+            motion_accumulator.message(msg)
             if msg.get("type") not in {"GLOBAL_POSITION_INT", "ATTITUDE"} or epoch is None:
                 continue
             boot = msg.get("time_boot_ms")
@@ -156,13 +184,17 @@ def decode_sonar(data: bytes, filename: str) -> dict:
                 skipped["invalid_sonar_parameters"] += 1
                 continue
             frame = frame_at(stamp)
+            cr, sr, cp, sp, cy, sy = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch), math.cos(yaw), math.sin(yaw)
             for angle, tof, power, classification in struct.iter_unpack("<fffB3x", point_data[80:]):
                 if not all(math.isfinite(v) for v in (angle, tof, power)) or power < threshold or classification == 2:
                     continue
                 distance = tof * sos / 2
                 if not 0.2 <= distance <= 500:
                     continue
-                north, east, down = rotate((0, math.sin(angle)*distance, math.cos(angle)*distance), roll, pitch, yaw)
+                beam_y, beam_z = math.sin(angle)*distance, math.cos(angle)*distance
+                ry, rz = cr*beam_y-sr*beam_z, sr*beam_y+cr*beam_z
+                rx, down = sp*rz, cp*rz
+                north, east = cy*rx-sy*ry, sy*rx+cy*ry
                 x, y, z = position[1]+east+offset[1], position[2]+north+offset[0], -down-offset[2]
                 if z >= 0:
                     continue
@@ -195,9 +227,10 @@ def decode_sonar(data: bytes, filename: str) -> dict:
         f = frames[second]
         points = []
         vertical=[];soundings=[]
-        for sx, sy, sz, count, alt_sum, alt_count, alt_min, alt_max, depth_sum in f.pop("bins").values():
+        values = list(f.pop("bins").values())
+        lons, lats = inverse.transform([v[0]/v[3] for v in values], [v[1]/v[3] for v in values])
+        for (sx, sy, sz, count, alt_sum, alt_count, alt_min, alt_max, depth_sum), lon, lat in zip(values, lons, lats):
             x, y, z = sx/count, sy/count, sz/count
-            lon, lat = inverse.transform(x, y)
             soundings.append([round(x,3),round(y,3),round(z,3),depth_sum/count,count])
             if alt_count:vertical.append([round(x,3),round(y,3),alt_sum,alt_count,alt_min,alt_max])
             points.append([round(x, 3), round(y, 3), round(z, 3), round(lon, 7), round(lat, 7), count])
@@ -207,7 +240,8 @@ def decode_sonar(data: bytes, filename: str) -> dict:
         output.append(f)
     if not retained:
         warnings.append("No supported, synchronized sonar detections recovered; navigation-only playback.")
-    return {"name": filename, "started_at": datetime.fromtimestamp(start, timezone.utc).isoformat(),
+    motion = motion_accumulator.result(datetime.fromtimestamp(start, timezone.utc).isoformat(), list(warnings))
+    return {"decoder_version": 1, "motion_summary": motion, "name": filename, "started_at": datetime.fromtimestamp(start, timezone.utc).isoformat(),
             "duration": output[-1]["t"], "crs": f"EPSG:{epsg}", "frames": output,
             "point_count": retained, "warnings": warnings, "packet_counts": dict(counts),
             "vertical_reference_version":2, "skipped": dict(skipped), "vertical_datum": "vehicle_origin_uncorrected",

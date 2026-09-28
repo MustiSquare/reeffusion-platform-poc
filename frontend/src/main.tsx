@@ -231,7 +231,7 @@ const tabs = [
   "Raw Data Upload",
   "Raw Data Viewer",
   "Raw Data Processing",
-  "Processed Data Viewer",
+  "Reef Analysis",
   "AI-Agents",
   "Data Archive",
   "Live Survey",
@@ -611,6 +611,7 @@ function ReefScene({
   soundingPoints,
   seaLevels,
   picked,
+  coordinates,
 }: {
   points: ReefPoint[];
   annotations: AnnotationItem[];
@@ -628,6 +629,7 @@ function ReefScene({
   textureUrl?: string;
   glbScene?: THREE.Object3D | null;
   theme: Theme;
+  coordinates?:any;
   soundingPoints:Sounding[];
   seaLevels:SeaLevels;
   picked:ReefPoint|null;
@@ -779,7 +781,7 @@ function ReefScene({
           onSelect={onSelectAnnotation}
         />
       )}
-      {soundingPoints.length>0&&<SoundingSurfaces points={soundingPoints} levels={seaLevels} zScale={zScale} picked={picked}/>}
+      {soundingPoints.length>0&&<SoundingSurfaces points={soundingPoints} levels={seaLevels} zScale={zScale} picked={picked} coords={coordinates}/>}
       {layers.grid && (
         <gridHelper
           args={[framing.gridSize, 20, scene.grid, scene.gridSub]}
@@ -1188,6 +1190,7 @@ function ProfessionalViewer({
                 textureUrl={textureUrl}
                 glbScene={glbScene}
                 theme={theme}
+                coordinates={dataset?.coordinate_system}
                 soundingPoints={soundingPoints}
                 seaLevels={seaLevels}
                 picked={picked}
@@ -1212,6 +1215,7 @@ function ProfessionalViewer({
           </div>
         </div>
         <aside className="viewerSidePanel right">
+          <small>{/^EPSG:32[67](0[1-9]|[1-5][0-9]|60)$/.test(dataset?.coordinate_system?.projected_crs||'')&&dataset?.coordinate_system?.projected_origin?.length===2&&dataset.coordinate_system.projected_origin.every(Number.isFinite)?"N/E/S/W: geographic orientation · BlueBoat: 1.20 × 0.93 m scale reference at centre":"Compass and boat scale unavailable: metric georeferencing required."}</small>
           <SeaLevelControls levels={seaLevels} update={setSeaLevels} status={soundingStatus} count={soundingPoints.length}/>
           <SeaLevelReadout levels={seaLevels} point={nearestSounding(soundingPoints,picked)}/>
           <h3>Selection</h3>
@@ -1645,7 +1649,7 @@ export function App() {
     setProcessedDataset(undefined);
     const dataset=await getJson(`/api/datasets/processed/${id}`);
     if(dataset.status!=='completed')throw new Error('Process this survey data before opening it in the processed viewer.');
-    setProcessedDataset(dataset);setSelected(dataset);setTab("Processed Data Viewer");
+    setProcessedDataset(dataset);setSelected(dataset);setTab("Reef Analysis");
     try {
       if(!surveyId){const index=await getJson('/api/survey/archive');surveyId=index.find((g:any)=>g.processed.some((p:any)=>p.id===id))?.id;}
       if(surveyId){if(archiveSurvey?.id!==surveyId)await loadArchive(surveyId);setArchiveSelection(dataset.viewer_config?.source_dataset_ids||[id]);}
@@ -1661,7 +1665,7 @@ export function App() {
   }
   useEffect(refresh, []);
   useEffect(()=>{
-    if(tab==='Processed Data Viewer')processedView.current?.scrollIntoView?.({block:'start',behavior:'instant'});
+    if(tab==='Reef Analysis')processedView.current?.scrollIntoView?.({block:'start',behavior:'instant'});
   },[tab,selected?.id]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1720,7 +1724,7 @@ export function App() {
               onClick={() => {
                 setTab(t);
                 if (t === "Live Survey"&&!archiveSurvey) setSurveyOpened(true);
-                if(t === 'Processed Data Viewer'){
+                if(t === 'Reef Analysis'){
                   const target=selected?proc.find(p=>p.status==='completed'&&(p.id===selected.id||p.raw_dataset_id===selected.id)):proc.find(p=>p.status==='completed');
                   if(target)openProcessed(target.id).catch(e=>setArchiveError(e.message));
                   else {setProcessedDataset(undefined);setArchiveSurvey(null);setArchiveError('Process this survey data before opening the processed viewer.');}
@@ -1759,7 +1763,7 @@ export function App() {
           {tab === "Raw Data Processing" && (
             <Processing raw={raw} job={job} setJob={setJob} />
           )}{" "}
-          {tab === "Processed Data Viewer" && (
+          {tab === "Reef Analysis" && (
             <div ref={processedView}>
               <div className="survey-controls">
                 <button onClick={() => { if(!archiveSurvey)setSurveyOpened(true); setTab("Live Survey"); }}>Back to survey map</button>

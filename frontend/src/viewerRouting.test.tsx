@@ -21,7 +21,7 @@ it('opens a multi-cell selection in the full existing viewer with annotation and
   fireEvent.click(screen.getByRole('button',{name:'Open selected area'}));
   await screen.findByText('Combined reef area (2 cells)');
   expect(mocks.post).toHaveBeenCalledWith('/api/survey/combined-area',{dataset_ids:['tile-a','tile-b']});
-  expect(screen.getByRole('button',{name:'Processed Data Viewer'})).toHaveClass('active');
+  expect(screen.getByRole('button',{name:'Reef Analysis'})).toHaveClass('active');
   for(const name of ['Inspect','Annotate','Measure','Fit dataset','Top','Side','Front']) expect(screen.getByRole('button',{name})).toBeInTheDocument();
   expect(screen.getByText('Z exaggeration')).toBeInTheDocument();
   expect(screen.getByText('Layers')).toBeInTheDocument();
@@ -42,6 +42,7 @@ it('opens an archive map without loading a recording and routes its cells into t
   render(<App/>);
   fireEvent.click(screen.getByRole('button',{name:'Live Survey'}));
   fireEvent.click(screen.getByRole('button',{name:'Access previous surveys'}));
+  fireEvent.click(await screen.findByRole('button',{name:/Location unavailable/}));
   fireEvent.click(await screen.findByRole('button',{name:'Open survey map'}));
   await screen.findByText('Full archived map');
   expect(mocks.get.mock.calls.some(([url])=>String(url).includes('/replays/'))).toBe(false);
@@ -49,7 +50,7 @@ it('opens an archive map without loading a recording and routes its cells into t
   fireEvent.click(screen.getByRole('button',{name:'Open archived cell'}));
   await screen.findByText('Compact cell map');
   expect(screen.getByText('Browse survey cells').closest('details')).not.toHaveAttribute('open');
-  expect(screen.getByRole('button',{name:'Processed Data Viewer'})).toHaveClass('active');
+  expect(screen.getByRole('button',{name:'Reef Analysis'})).toHaveClass('active');
   expect(screen.getByTestId('existing-viewer-canvas')).toBeInTheDocument();
   await waitFor(()=>expect(scrollToViewer).toHaveBeenCalledWith({block:'start',behavior:'instant'}));
   expect(screen.getByRole('button',{name:'Measure'})).toBeInTheDocument();
@@ -59,7 +60,7 @@ it('does not show a reef when no completed result is available',async()=>{
   mocks.post.mockResolvedValue({dataset_id:'pending'});
   mocks.get.mockImplementation(async(url:string)=>url==='/api/datasets/processed/pending'?{id:'pending',name:'Unprocessed reef',status:'processing',assets:[]}:[]);
   render(<App/>);
-  fireEvent.click(screen.getByRole('button',{name:'Processed Data Viewer'}));
+  fireEvent.click(screen.getByRole('button',{name:'Reef Analysis'}));
   expect(screen.queryByTestId('existing-viewer-canvas')).not.toBeInTheDocument();
   expect(screen.getByRole('alert')).toHaveTextContent('Process this survey data');
 });
@@ -69,6 +70,7 @@ it('rejects a result that is still processing even if an archive entry previousl
   mocks.get.mockImplementation(async(url:string)=>url==='/api/survey/archive'?[group]:url==='/api/datasets/processed/pending'?{id:'pending',status:'processing',assets:[]}:[]);
   render(<App/>);
   fireEvent.click(screen.getByRole('button',{name:'Data Archive'}));
+  fireEvent.click(await screen.findByRole('button',{name:/Location unavailable/}));
   fireEvent.click(await screen.findByRole('button',{name:/Pending survey/}));
   fireEvent.click(screen.getByRole('button',{name:'Open'}));
   await screen.findByRole('alert');

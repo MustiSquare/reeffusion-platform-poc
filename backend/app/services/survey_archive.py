@@ -7,6 +7,7 @@ from pyproj.exceptions import CRSError
 from sqlalchemy.orm import joinedload
 from app.models.tables import RawDataset, ProcessedDataset
 from app.services.overwrite import survey_date_key
+from app.services.archive_grid import memberships
 
 
 def dataset_info(d):
@@ -54,7 +55,7 @@ def archive_surveys(db):
     for p in processed:
         source_groups={proc_groups[i] for i in (p.viewer_config_json or {}).get("source_dataset_ids",[]) if i in proc_groups}
         gid=proc_groups.get(p.id) or (next(iter(source_groups)) if len(source_groups)==1 else None)
-        g=groups[gid] if gid else group(p.id,p.name)
+        g=groups[gid] if gid else group(p.id,(p.viewer_config_json or {}).get("survey_name") or p.name)
         g["processed"].append(dataset_info(p))
         if p.raw_dataset_id in raw_groups and p.status=="completed":
             raw=raw_by_id[p.raw_dataset_id]
@@ -77,7 +78,7 @@ def archive_surveys(db):
         duration=max(0,(datetime.fromisoformat(end)-datetime.fromisoformat(start)).total_seconds()) if start and end else None
         sizes=sorted({c["size"] for c in cells})
         result.append({**g,"location":location,"started_at":start,"ended_at":end,"duration_seconds":duration,
-            "received_cells":len(cells),"processed_cells":sum(bool(c.get("dataset_id")) for c in cells),"cells":cells,
+            "area_memberships":memberships(cells),"received_cells":len(cells),"processed_cells":sum(bool(c.get("dataset_id")) for c in cells),"cells":cells,
             "grids":[{"size":s,"received":sum(c["size"]==s for c in cells),"processed":sum(c["size"]==s and bool(c.get("dataset_id")) for c in cells)} for s in sizes]})
     return result
 

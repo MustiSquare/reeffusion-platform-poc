@@ -14,7 +14,8 @@
     "projected_origin": [
       196750.0,
       2234450.0
-    ]
+    ],
+    "sea_level_reference": null
   },
   "quality_report": {
     "source_dataset_ids": [
@@ -23,43 +24,50 @@
       "d07b4177-ca98-4dce-8401-d3af77b8aa10"
     ],
     "notes": [
-      "Existing surfaces combined; gaps preserved. Original depth reference retained. Classes remain provisional."
+      "Original high-resolution surfaces retained unchanged; 254 connecting faces added only at narrow, measurement-supported tile joins. Wider gaps preserved. Classes remain provisional."
     ]
   },
   "metrics": {
-    "surface_area": 6117.7133775526945,
-    "planar_area": 2066.2308790094366,
-    "rugosity": 2.960808223176668
+    "surface_area": 6260.410806444668,
+    "planar_area": 2074.8715454428075,
+    "rugosity": 3.0172522343346353
   },
   "source_metadata": null,
   "files": [
     {
-      "name": "mesh.glb",
-      "size_bytes": 116132,
-      "sha256": "a92812e58c60d61eacb533bac3b9f691f92d6e2d188770aa1120f81ab674e9b8",
-      "asset_type": "mesh_glb",
-      "asset_id": "b5a5af4b-b8d8-470f-a7d8-0cbb346150a2"
-    },
-    {
       "name": "point_cloud.xyz.csv",
-      "size_bytes": 104085,
-      "sha256": "c68e90579d491a69599a64ddd9d21184d8c9fff32208e60fa2be8f5a3b844cd2",
+      "size_bytes": 108081,
+      "sha256": "3a64f205d586aad644d261aa1397f9c882bd570c89a38e9c3d078a2848aa8a61",
       "asset_type": "point_cloud_xyz",
       "asset_id": "d1f1410f-545d-4e30-9983-45ef746007fd"
     },
     {
+      "name": "mesh.glb",
+      "size_bytes": 120728,
+      "sha256": "42ecc1e16c1f42512b54c1b7356eb546a80b55021bef9d3ee10a0cb525eea63e",
+      "asset_type": "mesh_glb",
+      "asset_id": "b5a5af4b-b8d8-470f-a7d8-0cbb346150a2"
+    },
+    {
       "name": "mesh.ply",
-      "size_bytes": 121778,
-      "sha256": "d2428421f3213a641fbb20521fe9e6c50a7cd465c73fdc0f35ecdcba74adf00d",
+      "size_bytes": 126628,
+      "sha256": "67f8901c9e8b517448cb9e3ecd429975c6e55a2df4fd1531537dc1f626801aaa",
       "asset_type": "mesh_ply",
       "asset_id": "ed19406c-61ee-4dbb-b92c-ee0b8a239d5a"
     },
     {
       "name": "mesh.obj",
-      "size_bytes": 230798,
-      "sha256": "5dd6ca42fea60c605f0f34dada3510005f1a302896ad179384f792bc6051dc89",
+      "size_bytes": 240105,
+      "sha256": "9837db6fc1ec62de309fd71ed342b6cd33ae5f9580842547b61495718d1a9d0c",
       "asset_type": "mesh_obj",
       "asset_id": "f31ee67e-fc06-44cb-85ff-0b3b419ef01c"
+    },
+    {
+      "name": "sounding_references.json",
+      "size_bytes": 71221,
+      "sha256": "5fc7268e31ca8165456b2aecb6b99eb27c1fbf04f407838c65bfdaf0e13ff59e",
+      "asset_type": "sounding_references",
+      "asset_id": "b80d97fa-2955-4107-aa97-c9deee32e4c0"
     }
   ]
 }

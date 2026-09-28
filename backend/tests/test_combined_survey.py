@@ -105,3 +105,59 @@ def test_combined_sounding_references_translate_xy_and_preserve_z_altitude(fixtu
     asset=next(a for a in d.assets if a.asset_type=='sounding_references')
     points=json.loads(storage.get_bytes(asset.object_key))['points']
     assert points==[[.2,.3,-20,18],[50.2,50.3,-20,18]]
+
+
+def test_rollback_restores_original_mesh_even_when_source_revisions_match(fixture):
+    db,storage=fixture
+    first=combined_survey.combine_datasets(['0','1'],db,storage)
+    dataset=db.get(ProcessedDataset,first['dataset_id'])
+    asset=next(a for a in dataset.assets if a.asset_type=='mesh_glb')
+    original=storage.get_bytes(asset.object_key)
+    original_asset_ids={a.asset_type:a.id for a in dataset.assets}
+    dataset.viewer_config_json={**dataset.viewer_config_json,'continuous_surface_version':1,'continuous_surface':True}
+    dataset.processing_version='combined-supported-grid-v2'
+    key='resampled-mesh'
+    storage.put_bytes(key,trimesh.creation.box().export(file_type='glb'))
+    asset.object_key=key
+    db.commit()
+    second=combined_survey.combine_datasets(['0','1'],db,storage)
+    assert first==second
+    assert 'continuous_surface_version' not in dataset.viewer_config_json
+    assert dataset.processing_version=='combined-existing-meshes-v1'
+    restored=next(a for a in dataset.assets if a.asset_type=='mesh_glb')
+    assert storage.get_bytes(restored.object_key)==original
+    assert {a.asset_type:a.id for a in dataset.assets}==original_asset_ids
+    assert db.query(Annotation).count()==2
+
+
+def test_combined_edge_repair_keeps_original_mesh_faces(fixture):
+    import json
+    from app.models.tables import RawDataset
+    db,storage=fixture
+    for i in range(2):
+        raw=RawDataset(id=f'raw-{i}',metadata_json={'replay_id':'survey','block':{'column':i,'row':0,'size':50,'until':10}})
+        db.add(raw);db.flush()
+        source=db.get(ProcessedDataset,str(i));source.raw_dataset_id=raw.id
+        source.coordinate_system_json={**source.coordinate_system_json,'projected_origin':[500000+i*50,2000000]}
+        # Two detailed edge strips, separated by a half-metre artificial seam.
+        xs=np.linspace(48,49.75,8) if i==0 else np.linspace(.25,2,8)
+        x,y=np.meshgrid(xs,np.linspace(0,4,17));z=-10+np.sin(y)*.1
+        from app.processing.mesh import _grid_faces
+        mesh=trimesh.Trimesh(vertices=np.column_stack([x.ravel(),y.ravel(),z.ravel()]),faces=_grid_faces(*x.shape),process=False)
+        storage.put_bytes(f'mesh-{i}',mesh.export(file_type='glb'))
+        key=f'refs-{i}';storage.put_bytes(key,json.dumps({'points':[[*p,10] for p in mesh.vertices.tolist()]}).encode())
+        db.add(ProcessedAsset(dataset_id=str(i),asset_type='sounding_references',object_key=key))
+    db.commit()
+    original_meshes=[]
+    for i in range(2):
+        mesh=trimesh.load(io.BytesIO(storage.get_bytes(f'mesh-{i}')),file_type='glb',force='scene',process=False).to_geometry()
+        mesh.apply_translation([50*i,0,0]);original_meshes.append(mesh)
+    original=trimesh.util.concatenate(original_meshes)
+    result=combined_survey.combine_datasets(['0','1'],db,storage)
+    dataset=db.get(ProcessedDataset,result['dataset_id'])
+    assert dataset.viewer_config_json['tile_seam_faces']>0
+    asset=next(a for a in dataset.assets if a.asset_type=='mesh_glb')
+    combined=trimesh.load(io.BytesIO(storage.get_bytes(asset.object_key)),file_type='glb',force='scene',process=False).to_geometry()
+    np.testing.assert_allclose(combined.vertices[:len(original.vertices)],original.vertices,atol=1e-6)
+    np.testing.assert_array_equal(combined.faces[:len(original.faces)],original.faces)
+    assert len(combined.faces)==len(original.faces)+dataset.viewer_config_json['tile_seam_faces']

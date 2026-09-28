@@ -1,6 +1,10 @@
 # Live Survey playback
 
-Open **Live Survey**, then load a `.svlz` or `.svlog` recording (maximum 100 MB).
+Open **Live Survey**, then load a `.svlz` or `.svlog` recording (default maximum 2 GiB).
+Uploads are decoded and stored as streams. `SURVEY_UPLOAD_LIMIT_MB` (default 2048)
+and `SURVEY_DECOMPRESSED_LIMIT_MB` (default 16384) configure the limits in MiB.
+The existing 500,000 retained-point limit and one-day recording limit still apply;
+decoder warnings indicate partial recovery or point truncation.
 The supplied `test_data/2026-07-10-20-00.svlz` works, recovering approximately
 63 minutes before a damaged gzip section. The UI reports recovered-prefix playback.
 
@@ -89,3 +93,23 @@ The obsolete absolute-height and sonar-to-waterline browser settings are not use
 Processing preserves beam-angle/attitude-corrected vertical sonar distances in `sounding_references.json`, copied to results and dated exports. Combined cells translate XY without changing Z or sonar altitude. `GET /api/survey/processed/{dataset_id}/sounding-references` recovers positions for older processed cells from retained recordings and the saved processing snapshot, without rebuilding or overwriting mesh assets.
 
 Cell hover tooltips are removed from live and archived survey maps; colours and selection controls still indicate cell state. Only the sea-level/MSL references bridge gaps. Seabed geometry is unchanged.
+
+
+Loading shows an estimated overall percentage beside the recording selector. The
+configured upload limit is displayed there and checked before transfer. Saved
+replay upgrades and onboard motion summaries are retained in object storage.
+Identical recordings can reuse versioned decoding results; overwrite confirmation
+still applies. Playback responses omit backend-only reference arrays without
+changing stored XYZ or processed-viewer data. Progress uses short-lived Redis
+records and loading continues if progress reporting is unavailable.
+
+
+Combined views retain the original high-resolution tile meshes without resampling.
+The shared 1 m surface reconstruction has been rolled back. Any combined view
+created using it is restored from original tile meshes when reopened, retaining
+its ID and annotations. Artificial tile seams are repaired with added boundary strips only: original
+vertices and faces remain unchanged. Connections require adjacent selected cells
+from the same survey, edges within 2 m of the shared boundary and supporting
+soundings within 2 m. Unsupported gaps remain open. Small four-tile corner holes
+are closed only when all four measured boundary chains are present. Existing
+combined views upgrade in place on reopening; original cell meshes are untouched.

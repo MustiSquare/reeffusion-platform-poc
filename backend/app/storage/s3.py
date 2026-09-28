@@ -1,4 +1,6 @@
 import io, mimetypes
+from contextlib import closing
+from boto3.s3.transfer import TransferConfig
 import boto3
 from botocore.client import Config
 from app.core.config import settings
@@ -18,8 +20,22 @@ class ObjectStore:
     def put_bytes(self, key, data: bytes, content_type=None):
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type or mimetypes.guess_type(key)[0] or "application/octet-stream")
         return key
-    def get_bytes(self, key):
-        return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+    def put_file(self, key, source, content_type="application/octet-stream"):
+        source.seek(0)
+        self.client.upload_fileobj(source,self.bucket,key,ExtraArgs={"ContentType":content_type},
+            Config=TransferConfig(multipart_threshold=8*1024*1024,multipart_chunksize=8*1024*1024,max_concurrency=2))
+        return key
+    def open_read(self, key):
+        return closing(self.client.get_object(Bucket=self.bucket, Key=key)["Body"])
+    def get_bytes(self, key, progress=None):
+        response = self.client.get_object(Bucket=self.bucket, Key=key)
+        with closing(response["Body"]) as source:
+            if progress is None: return source.read()
+            output = io.BytesIO()
+            while chunk := source.read(1024*1024):
+                output.write(chunk)
+                progress(output.tell(), response["ContentLength"])
+            return output.getvalue()
     def delete_key(self, key):
         self.client.delete_object(Bucket=self.bucket, Key=key)
     def delete_prefix(self, prefix):

@@ -80,7 +80,7 @@ def test_reupload_same_recording_reuses_replay_and_legacy_match(replay, monkeypa
     from app.testing.fixtures import FakeObjectStore
     storage = FakeObjectStore()
     monkeypatch.setattr(survey, "store", lambda:storage)
-    monkeypatch.setattr(survey, "decode_sonar", lambda data,name:dict(replay))
+    monkeypatch.setattr(survey, "decode_sonar", lambda data,name,**kwargs:dict(replay))
     first = survey.save_replay(b"same-recording", "one.svlz")
     second = survey.save_replay(b"same-recording", "renamed.svlz")
     assert first["id"] == second["id"]
@@ -139,3 +139,137 @@ def test_legacy_processed_cell_recovers_soundings_without_mesh_reprocessing(repl
         result=processed_sounding_reference(proc,db,FakeObjectStore(),lambda _:replay)
         assert result['points']==[[1,1,-20,18]]
         assert proc.assets==[]
+
+
+@pytest.mark.parametrize("size_mb,accepted", [(101, True), (2048, True), (2049, False)])
+def test_upload_limit_checks_file_size_without_reading_into_memory(monkeypatch, size_mb, accepted):
+    from fastapi import HTTPException
+    class Upload:
+        def seek(self, offset, whence=0):
+            return size_mb * 1024 * 1024 if whence == 2 else offset
+        def read(self, *args):
+            raise AssertionError("Upload must be passed to the streaming decoder")
+    source = Upload()
+    monkeypatch.setattr(survey.settings, "survey_upload_limit_mb", 2048)
+    calls = []
+    monkeypatch.setattr(survey, "save_replay", lambda *args: calls.append(args) or {"id":"ok"})
+    if accepted:
+        assert survey.save_uploaded_replay(source, "large.svlz", None, "", False) == {"id":"ok"}
+        assert calls[0][0] is source
+    else:
+        with pytest.raises(HTTPException) as exc:
+            survey.save_uploaded_replay(source, "large.svlz", None, "", False)
+        assert exc.value.status_code == 413
+        assert not calls
+
+
+def test_streamed_recording_preserves_hash_and_stored_source(replay, monkeypatch):
+    import io
+    from app.testing.fixtures import FakeObjectStore
+    class Storage(FakeObjectStore):
+        def put_file(self, key, source, content_type):
+            source.seek(0)
+            self.put_bytes(key, source.read(1024), content_type)
+    storage = Storage()
+    monkeypatch.setattr(survey, "store", lambda: storage)
+    def decode(source, name, **kwargs):
+        if hasattr(source, "read"):
+            assert source.read(1024) == b"same-recording"
+        return dict(replay)
+    monkeypatch.setattr(survey, "decode_sonar", decode)
+    expected = survey.save_replay(b"same-recording", "one.svlog")
+    streamed = survey.save_replay(io.BytesIO(b"same-recording"), "renamed.svlog")
+    assert streamed["id"] == expected["id"]
+    assert streamed["source_sha256"] == expected["source_sha256"]
+    assert storage.objects[f"replays/{streamed['id']}/source.svlog"] == b"same-recording"
+
+
+def test_playback_payload_omits_only_backend_reference_arrays(replay):
+    replay['frames'][0]['sounding_altitudes'] = [[1,2,3,4]]
+    replay['frames'][0]['vertical_samples'] = [[5,6]]
+    payload = survey.playback_payload(replay)
+    assert payload['frames'][0]['points'] == replay['frames'][0]['points']
+    assert 'sounding_altitudes' not in payload['frames'][0]
+    assert 'sounding_altitudes' in replay['frames'][0]
+
+
+def test_compatible_upload_cache_skips_decoder(replay, monkeypatch):
+    import hashlib, json
+    from app.testing.fixtures import FakeObjectStore
+    storage = FakeObjectStore()
+    data = b'cached-recording'
+    digest = hashlib.sha256(data).hexdigest()
+    cached = {**replay, 'decoder_version':1, 'source_sha256':digest}
+    storage.put_bytes(f'replay-cache/{digest}.json', json.dumps({'id':replay['id']}).encode())
+    storage.put_bytes(f"replays/{replay['id']}/replay.json", json.dumps(cached).encode())
+    monkeypatch.setattr(survey, 'store', lambda:storage)
+    def unexpected(*args, **kwargs): raise AssertionError('Cached recording decoded again')
+    monkeypatch.setattr(survey, 'decode_sonar', unexpected)
+    result = survey.save_replay(data, 'renamed.svlog')
+    assert result['source_sha256'] == digest
+    assert result['name'] == 'renamed.svlog'
+
+
+def test_legacy_upgrade_is_saved_across_memory_cache_clear(monkeypatch):
+    import io, json
+    from contextlib import closing
+    from app.testing.fixtures import FakeObjectStore
+    class Storage(FakeObjectStore):
+        def get_bytes(self, key, progress=None): return super().get_bytes(key)
+        def open_read(self, key): return closing(io.BytesIO(b'recording'))
+        @property
+        def client(self): return self
+        bucket = 'test'
+        def head_object(self, **kwargs): return {'ContentLength':9}
+    storage = Storage()
+    storage.put_bytes('replays/legacy/replay.json',json.dumps({'name':'legacy','frames':[{'t':0,'points':[]}]}).encode())
+    monkeypatch.setattr(survey,'store',lambda:storage)
+    calls=[]
+    def decode(*args, **kwargs):
+        calls.append(True)
+        return {'frames':[{'t':0,'sounding_altitudes':[[1,2,-3,3]],'vertical_samples':[]}], 'motion_summary':{'samples':[]}}
+    monkeypatch.setattr(survey,'decode_sonar',decode)
+    survey.load_replay.cache_clear()
+    try:
+        first=survey.load_replay('legacy')
+        survey.load_replay.cache_clear()
+        second=survey.load_replay('legacy')
+        assert first == second
+        assert len(calls)==1
+        assert 'replays/legacy/motion.json' in storage.objects
+    finally: survey.load_replay.cache_clear()
+
+
+def test_motion_uses_persisted_summary_without_recording_read(monkeypatch):
+    import json
+    from app.testing.fixtures import FakeObjectStore
+    storage=FakeObjectStore()
+    storage.put_bytes('replays/saved/motion.json',json.dumps({'samples':[{'t':1}]}).encode())
+    monkeypatch.setattr(survey,'store',lambda:storage)
+    monkeypatch.setattr(survey,'load_replay',lambda _: {'started_at':'2026-07-10T20:00:00Z'})
+    survey.load_motion.cache_clear()
+    try: assert survey.load_motion('saved')['samples']==[{'t':1}]
+    finally: survey.load_motion.cache_clear()
+
+
+@pytest.mark.parametrize('name', ['', '   ', 'x'*31])
+def test_archive_rename_rejects_invalid_names(name):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError): survey.SurveyRename(name=name)
+
+
+def test_archive_rename_updates_all_members_and_preserves_identity():
+    from app.services.survey_archive import archive_surveys
+    engine=create_engine('sqlite://');Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        for i in range(2):
+            db.add(RawDataset(id=f'r{i}',name=f'cell {i}',metadata_json={'source_sha256':'same','survey_name':'Old'}))
+        db.commit()
+        group=archive_surveys(db)[0]
+        result=survey.archive_rename(group['id'],survey.SurveyRename(name='  New reef  '),db,None)
+        assert result['name']=='New reef'
+        updated=archive_surveys(db)[0]
+        assert updated['id']==group['id']
+        assert updated['name']=='New reef'
+        assert len(updated['raw'])==2
+        assert db.get(RawDataset,'r0').name=='cell 0'

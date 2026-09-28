@@ -2,6 +2,8 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 
 class Settings(BaseSettings):
+    survey_upload_limit_mb: int = 2048
+    survey_decompressed_limit_mb: int = 16384
     project_name: str = "ReefFusion Platform"
     database_url: str = "postgresql+psycopg://reefusion:reefusion@postgres:5432/reefusion"
     redis_url: str = "redis://redis:6379/0"

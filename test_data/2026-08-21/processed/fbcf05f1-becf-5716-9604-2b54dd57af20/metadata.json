@@ -1,0 +1,106 @@
+{
+  "processed_dataset_id": "fbcf05f1-becf-5716-9604-2b54dd57af20",
+  "name": "Combined reef area (20 cells)",
+  "raw_dataset_id": null,
+  "survey_date_utc": "2026-08-21T23:13:33.179000+00:00",
+  "coordinate_system": {
+    "crs": "LOCAL_GRID",
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "vertical_convention": "elevation_positive_up",
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      202950.0,
+      2217700.0
+    ],
+    "sea_level_reference": {
+      "version": 1,
+      "source": "GLOBAL_POSITION_INT.alt (mm converted to metres)",
+      "vehicle_altitude_msl_m": 22.173144214613945,
+      "vehicle_altitude_msl_range_m": [
+        16.79,
+        26.48
+      ],
+      "soundings": 8444484,
+      "total_soundings": 8444484,
+      "coverage": 1.0,
+      "msl_z_m": null,
+      "sea_surface_z_m": null,
+      "status": "navigation_altitude_only",
+      "note": "Navigation altitude is retained for provenance, not used as sonar altitude or a sea-level plane. Waterline and MSL offsets are not recorded."
+    },
+    "sounding_reference_version": 2
+  },
+  "quality_report": {
+    "source_dataset_ids": [
+      "082961ba-d55f-45b1-bc86-f6e4d432ae3d",
+      "0ac236d9-5ec0-4532-bc03-fc63ba5b1497",
+      "0b06c864-222a-4861-ab46-7de449059cb7",
+      "140a18e2-0019-4b42-b3e3-870265f0f114",
+      "18b8c227-e85a-4b67-a54a-7adbfaea55c5",
+      "1dc7bf1e-0863-4ffe-8e9a-952102d61924",
+      "3154c57c-e1c7-4c16-ad85-5120a957ae39",
+      "32dd928c-93d3-452a-8b5d-ea6ffd8394ec",
+      "3897be34-90d4-4d46-a313-8bed16bc6ff3",
+      "4ea957a1-3696-443e-918d-486cd1833142",
+      "5ad50d3f-a656-4dc7-bfd0-14916d40ef6e",
+      "602f63b6-8b8a-47a1-b946-871d895a413d",
+      "66e86c99-7ed4-4d51-836d-01df884557f2",
+      "7bdf6431-c431-42b3-9396-b926ad73e792",
+      "82be8862-cdf3-4e0e-93b9-e9ee513e7883",
+      "98f7083a-9c0e-4c91-851b-b5d16ff592ce",
+      "a07a546e-6c2f-4dea-a90e-ec075cda359e",
+      "be4f5db2-cc76-4356-8a5a-66fe6c6a1b3a",
+      "ca71bdfd-9c3a-42e4-8889-04f4dfe451b3",
+      "d18b72f8-7fdd-4ab9-b0c3-62ae7b460f3b"
+    ],
+    "notes": [
+      "Original high-resolution surfaces retained unchanged; 2952 connecting faces added only at narrow, measurement-supported tile joins. Wider gaps preserved. Classes remain provisional."
+    ]
+  },
+  "metrics": {
+    "surface_area": 24251.500365342476,
+    "planar_area": 13138.531180460392,
+    "rugosity": 1.845830407694985
+  },
+  "source_metadata": null,
+  "files": [
+    {
+      "name": "mesh.glb",
+      "size_bytes": 1276912,
+      "sha256": "34e6135928d411e3f7b69db65bf25c891d279c4fc84f616e09e4802c32d340bf",
+      "asset_type": "mesh_glb",
+      "asset_id": "0d0f4e3c-8f23-4f89-86ab-d4baf6d25080"
+    },
+    {
+      "name": "sounding_references.json",
+      "size_bytes": 564177,
+      "sha256": "d852c98f83940ea0f3941917533962868bc1de19e70c57ceb4d80c30dbe430d4",
+      "asset_type": "sounding_references",
+      "asset_id": "a7490b90-c09b-4d81-9c3e-596d9b2031fa"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 1345815,
+      "sha256": "ddb1f03326924cf481d295283bd175ed612b6c638276a45b57dac4ba59560c8a",
+      "asset_type": "mesh_ply",
+      "asset_id": "d779566a-cb36-416e-abc9-5dacf9136d8f"
+    },
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 1185396,
+      "sha256": "7e3a8fdf9786bcfe171127f0ba2c9d930d751b815e988b945696d74f899cb12f",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "ea60cfd6-a084-42cb-a887-5d3bd7156662"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 2806393,
+      "sha256": "13a433e61ffe87ed56d1dfc82987693c6e6b2d7f7cfffc4064302ec078ea6d60",
+      "asset_type": "mesh_obj",
+      "asset_id": "ef88b97c-2161-46e3-b9a8-d12d3da66601"
+    }
+  ]
+}

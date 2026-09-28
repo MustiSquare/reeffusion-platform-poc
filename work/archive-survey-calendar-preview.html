@@ -1,0 +1,56 @@
+<div id="reef-calendar-preview" aria-label="Survey archive date and time preview">
+  <style>
+    #reef-calendar-preview { color-scheme:light dark; --reef-bg:light-dark(#f5fafc,#0b1c28); --reef-panel:light-dark(#fff,#102633); --reef-text:light-dark(#123348,#e7f3fc); --reef-muted:light-dark(#496476,#9eb9cc); --reef-line:light-dark(#cedde6,#2b4759); --reef-track:light-dark(#e4edf2,#213b4b); --reef-green:light-dark(#15803d,#4ade80); color:var(--reef-text); background:var(--reef-bg); font-family:system-ui,sans-serif; padding:20px; border-radius:16px; }
+    #reef-calendar-preview * { box-sizing:border-box; }
+    #reef-calendar-preview header { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+    #reef-calendar-preview .muted { color:var(--reef-muted); }
+    #reef-calendar-preview .legend { display:flex; align-items:center; gap:7px; }
+    #reef-calendar-preview .key { width:12px; height:12px; background:var(--reef-green); display:inline-block; }
+    #reef-calendar-preview article { background:var(--reef-panel); border:1px solid var(--reef-line); border-radius:12px; padding:16px; margin-top:12px; }
+    #reef-calendar-preview .timing { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+    #reef-calendar-preview .caption { display:flex; justify-content:space-between; gap:8px; margin-bottom:10px; }
+    #reef-calendar-preview .dates { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:5px; }
+    #reef-calendar-preview .date { text-align:center; }
+    #reef-calendar-preview .square { display:block; width:100%; max-width:32px; aspect-ratio:1; margin:0 auto 5px; background:var(--reef-track); border-radius:3px; }
+    #reef-calendar-preview .date.active .square { background:var(--reef-green); color:light-dark(#fff,#052c15); display:grid; place-items:center; }
+    #reef-calendar-preview .bar { position:relative; height:32px; background:var(--reef-track); border-radius:3px; overflow:hidden; }
+    #reef-calendar-preview .hour { position:absolute; height:100%; background:var(--reef-green); }
+    #reef-calendar-preview .ticks { display:flex; justify-content:space-between; color:var(--reef-muted); margin-top:5px; }
+    #reef-calendar-preview .divider { position:absolute; left:50%; height:100%; width:1px; background:var(--reef-muted); }
+    #reef-calendar-preview .details { border-top:1px solid var(--reef-line); margin-top:14px; padding-top:12px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+    #reef-calendar-preview .name { overflow-wrap:anywhere; }
+    #reef-calendar-preview .range { margin-top:9px; color:var(--reef-muted); }
+    #reef-calendar-preview { font-size:12px; line-height:1.35; padding:12px; border-radius:12px; }
+    #reef-calendar-preview header { margin-bottom:10px; gap:8px; }
+    #reef-calendar-preview article { padding:10px 12px; margin-top:8px; border-radius:8px; }
+    #reef-calendar-preview .timing { grid-template-columns:180px minmax(0,1fr); gap:20px; }
+    #reef-calendar-preview .caption { margin-bottom:5px; gap:6px; }
+    #reef-calendar-preview .dates { grid-template-columns:repeat(7,22px); gap:2px; }
+    #reef-calendar-preview .square { width:20px; height:20px; margin-bottom:2px; border-radius:2px; }
+    #reef-calendar-preview .bar { height:20px; border-radius:2px; }
+    #reef-calendar-preview .ticks { margin-top:2px; font-size:11px; }
+    #reef-calendar-preview .key { width:9px; height:9px; }
+    #reef-calendar-preview .details { margin-top:8px; padding-top:7px; gap:5px; }
+    #reef-calendar-preview .range { margin-top:3px; }
+    @media(max-width:450px) { #reef-calendar-preview .timing {grid-template-columns:1fr;gap:10px;} }
+  </style>
+  <header><span>▾ Same location · August 2026</span><span class="legend muted"><span class="key"></span>Recorded coverage · UTC</span></header>
+  <div class="rows"></div>
+  <script>
+  (()=>{
+    const root=document.getElementById('reef-calendar-preview');
+    const examples=[
+      {name:'2026-08-21-20-15.svlz',days:[21],start:20+15/60,end:20+56/60,span:24,label:'21 Aug · 20:15–20:56 UTC',duration:'41 min',hours:'24 hours'},
+      {name:'2026-08-21-23-13.svlz',days:[21],start:23+13/60,end:23+55/60,span:24,label:'21 Aug · 23:13–23:55 UTC',duration:'42 min',hours:'24 hours'},
+      {name:'Overnight survey · illustrative example',days:[22,23],start:23+10/60,end:25+25/60,span:48,label:'22 Aug 23:10 → 23 Aug 01:25 UTC',duration:'2 h 15 min',hours:'48 hours · 22–23 Aug'}
+    ];
+    root.querySelector('.rows').innerHTML=examples.map(s=>`<article aria-label="${s.name}">
+      <div class="timing">
+        <div><div class="caption"><span>August 2026</span><span class="muted">17–23 Aug</span></div><div class="dates" role="img" aria-label="Recorded on ${s.days.join(' and ')} August">${[17,18,19,20,21,22,23].map(day=>`<div class="date ${s.days.includes(day)?'active':''}"><span class="square">${s.days.includes(day)?'✓':''}</span><span>${day}</span></div>`).join('')}</div></div>
+        <div><div class="caption"><span>Survey hours</span><span class="muted">${s.hours}</span></div><div class="bar" role="img" aria-label="${s.label}"><span class="hour" style="left:${100*s.start/s.span}%;width:${100*(s.end-s.start)/s.span}%"></span>${s.span===48?'<span class="divider"></span>':''}</div><div class="ticks">${(s.span===24?['00','06','12','18','24']:['00','12','00 +1d','12','24']).map(t=>`<span>${t}</span>`).join('')}</div></div>
+      </div>
+      <div class="details"><span class="name">${s.name}</span><span class="muted">${s.duration}</span></div><div class="range">${s.label}</div>
+    </article>`).join('');
+  })();
+  </script>
+</div>

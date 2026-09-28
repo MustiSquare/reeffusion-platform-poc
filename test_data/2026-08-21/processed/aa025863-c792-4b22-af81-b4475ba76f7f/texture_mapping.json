@@ -1,0 +1,132 @@
+{
+  "texture_file": "coral_texture.jpg",
+  "mapping": "planar_xy_normalized_uv",
+  "uv_origin": "lower_left",
+  "u_axis": "x",
+  "v_axis": "y",
+  "bounds": {
+    "min_x": 47.762,
+    "max_x": 49.939,
+    "min_y": 43.794,
+    "max_y": 49.571
+  },
+  "source": "bathymetry-derived point cloud from bathymetry_xyz.csv",
+  "geometry_metadata": {
+    "point_count": 13,
+    "grid_shape": [
+      7,
+      7
+    ],
+    "regular_grid": false,
+    "interpolated": true,
+    "interpolation": {
+      "method": "idw",
+      "power": 2.0,
+      "grid_size": 7
+    },
+    "source": "bathymetry_xyz.csv",
+    "crs": "LOCAL_GRID",
+    "coordinate_columns": {
+      "x": "x",
+      "y": "y"
+    },
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_convention": "elevation_positive_up",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "bounds": {
+      "min_x": 47.762,
+      "min_y": 43.794,
+      "max_x": 49.939,
+      "max_y": 49.571,
+      "min_z": -18.147,
+      "max_z": -5.765
+    },
+    "centroid": {
+      "x": 49.031461538461535,
+      "y": 47.443
+    },
+    "source_metadata": {
+      "crs": "LOCAL_GRID",
+      "xy_units": "meters",
+      "vertical_datum": "vehicle_origin_uncorrected",
+      "support_radius_m": "2",
+      "projected_crs": "EPSG:32605",
+      "origin_easting": "203000",
+      "origin_northing": "2217550",
+      "replay_id": "7cf108ed-790e-57ca-a554-c7ce300f0e04",
+      "replay_until_seconds": "2495.0"
+    },
+    "support_mask": [
+      [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    ],
+    "support_radius_m": 2.0,
+    "supported_fraction": 0.9591836734693877,
+    "metrics_note": "Legacy grid metrics include interpolation; not valid as measured-coverage metrics.",
+    "image_asset_count": 0,
+    "method": "structured bathymetry surface reconstruction"
+  }
+}

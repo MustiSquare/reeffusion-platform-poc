@@ -1,3 +1,4 @@
+import SeaOrientation from './SeaOrientation';
 import {useEffect,useMemo,useState} from 'react';
 import * as THREE from 'three';
 export type Sounding=[number,number,number,number];
@@ -53,7 +54,7 @@ export function referenceTopology(points:Sounding[]){
   for(let y=minY+step;y<maxY;y+=step)line([minX,y],[maxX,y]);
   return {positions,edges,faces};
 }
-export function SoundingSurfaces({points,levels,zScale,picked}:{points:Sounding[];levels:SeaLevels;zScale:number;picked?:{x:number;y:number;z:number}|null}){
+export function SoundingSurfaces({points,levels,zScale,picked,coords}:{coords?:any;points:Sounding[];levels:SeaLevels;zScale:number;picked?:{x:number;y:number;z:number}|null}){
   const topology=useMemo(()=>referenceTopology(points),[points]);
   const offset=referenceHeight(levels.offset);
   const geometry=useMemo(()=>{
@@ -67,7 +68,9 @@ export function SoundingSurfaces({points,levels,zScale,picked}:{points:Sounding[
   useEffect(()=>()=>Object.values(geometry).forEach(g=>g.dispose()),[geometry]);
   const guide=useMemo(()=>{const p=nearestSounding(points,picked);if(!p)return null;const h=referenceHeights(offset);return new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(p[0],p[2]*zScale,p[1]),new THREE.Vector3(p[0],h.blue*zScale,p[1])]);},[points,picked,offset,zScale]);
   useEffect(()=>()=>guide?.dispose(),[guide]);
+  const bounds=topology.positions.length?{minX:topology.positions[0][0],minY:topology.positions[0][1],maxX:topology.positions[2][0],maxY:topology.positions[2][1]}:null;
   return <group>
+    {levels.showSurface&&bounds&&<SeaOrientation coords={coords} bounds={bounds}/>}
     {levels.showSurface&&<lineSegments geometry={geometry.blue} raycast={()=>{}} renderOrder={6}><lineBasicMaterial color="#168fff" transparent opacity={.55} depthWrite={false}/></lineSegments>}
     {levels.showMsl&&offset!==null&&<mesh geometry={geometry.yellow} raycast={()=>{}} renderOrder={5}><meshBasicMaterial color="#ffe133" transparent opacity={.2} depthWrite={false} side={THREE.DoubleSide}/></mesh>}
     {guide&&levels.showSurface&&<lineSegments geometry={guide} raycast={()=>{}}><lineBasicMaterial color="#168fff"/></lineSegments>}

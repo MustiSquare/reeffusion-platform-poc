@@ -3,11 +3,12 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {act,cleanup,render,screen,fireEvent,waitFor} from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import ArchiveExplorer,{WorldThumbnail} from './ArchiveExplorer';
-const mocks=vi.hoisted(()=>({clicks:[] as any[],get:vi.fn(async(_url:string)=>({available:false})),polygons:vi.fn()}));
+const mocks=vi.hoisted(()=>({clicks:[] as any[],get:vi.fn(async(_url:string):Promise<any>=>({available:false})),polygons:vi.fn(),markers:vi.fn()}));
 vi.mock('../api/client',()=>({getJson:mocks.get}));
 vi.mock('leaflet',()=>{
   const layer=()=>{const item:any={};for(const key of ['addTo','on','bindTooltip','setView','clearLayers','remove','invalidateSize','fitBounds'])item[key]=()=>item;return item;};
   return {default:{map:()=>{const m=layer();m.createPane=()=>({style:{}});return m;},tileLayer:()=>layer(),featureGroup:()=>{const l=layer();l.clearLayers=()=>{mocks.clicks=[];};return l;},latLngBounds:(p:any)=>p,
+    circleMarker:(p:any,options:any)=>{mocks.markers(p,options);return layer();},
     polygon:(p:any,options:any)=>{mocks.polygons(options);const l=layer();l.on=(event:string,callback:any)=>{mocks.clicks.push(callback);return l;};return l;}}};
 });
 vi.stubGlobal('ResizeObserver',class {observe(){} disconnect(){}});
@@ -25,7 +26,7 @@ it('limits archived selection to 20 and opens the existing combined-view callbac
   fireEvent.click(screen.getByRole('button',{name:'Open 20/20 selected cells'}));
   await waitFor(()=>expect(openArea).toHaveBeenCalledWith(Array.from({length:20},(_,i)=>`p${i}`)));
   expect(open).not.toHaveBeenCalled();
-  expect(mocks.get.mock.calls.every(args=>String(args[0]).endsWith('/conditions'))).toBe(true);
+  expect(mocks.get.mock.calls.every(args=>String(args[0]).endsWith('/conditions')||String(args[0]).includes('/coverage?size='))).toBe(true);
   expect(mocks.polygons).toHaveBeenCalledWith(expect.objectContaining({pane:'archiveSelection',interactive:false}));
 });
 
@@ -42,4 +43,12 @@ it('places a red location marker correctly on the world thumbnail',()=>{
   const {container}=render(<WorldThumbnail location={{latitude:20,longitude:-156}}/>);
   expect(container.querySelector('circle')).toHaveAttribute('cx','24');
   expect(container.querySelector('circle')).toHaveAttribute('cy','70');
+});
+
+
+it('draws archived measured points without making them selectable cells',async()=>{
+  mocks.get.mockImplementation(async(url:string)=>url.includes('/coverage?')?{points:[[-155,20,-18,'cell0']],total_points:1,sampled:false}:({available:false}));
+  render(<ArchiveExplorer survey={survey} selected={[]} setSelected={vi.fn()} open={vi.fn()}/>);
+  await waitFor(()=>expect(mocks.markers).toHaveBeenCalledWith([20,-155],expect.objectContaining({pane:'archiveSoundings',interactive:false})));
+  expect(screen.getByText(/Measured point coverage: 1 points/)).toBeInTheDocument();
 });
