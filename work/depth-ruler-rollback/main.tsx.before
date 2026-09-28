@@ -1,4 +1,3 @@
-import DepthRuler from './survey/DepthRuler';
 import React, {
   createContext,
   useContext,
@@ -783,7 +782,6 @@ function ReefScene({
         />
       )}
       {soundingPoints.length>0&&<SoundingSurfaces points={soundingPoints} levels={seaLevels} zScale={zScale} picked={picked} coords={coordinates}/>}
-      {layers.depthRuler&&<DepthRuler bounds={sceneBounds} zScale={zScale} msl={referenceHeights(referenceHeight(seaLevels.offset)).yellow} picked={picked?.z??null} theme={theme}/>}
       {layers.grid && (
         <gridHelper
           args={[framing.gridSize, 20, scene.grid, scene.gridSub]}
@@ -843,7 +841,6 @@ function ProfessionalViewer({
     wireframe: false,
     annotations: annotationMode,
     grid: false,
-    depthRuler: true,
     benthic: true,
     health: true,
     videoLookup: true,
@@ -1081,7 +1078,7 @@ function ProfessionalViewer({
                 }
               />
               {(layers as any)[k] ? <Eye size={15} /> : <EyeOff size={15} />}{" "}
-              {k==='depthRuler'?'Depth ruler':k}
+              {k}
             </label>
           ))}
           <h3>Rendering</h3>
