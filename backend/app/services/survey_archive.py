@@ -8,10 +8,13 @@ from sqlalchemy.orm import joinedload
 from app.models.tables import RawDataset, ProcessedDataset
 from app.services.overwrite import survey_date_key
 from app.services.archive_grid import memberships
+from app.services.survey_repair import visible
 
 
 def dataset_info(d):
-    return {"id":d.id,"name":d.name,"status":d.status,"raw_dataset_id":getattr(d,"raw_dataset_id",None)}
+    meta = getattr(d,"metadata_json",None) or getattr(d,"viewer_config_json",None) or {}
+    return {"id":d.id,"name":d.name,"status":d.status,"raw_dataset_id":getattr(d,"raw_dataset_id",None),
+            "generation_state":meta.get("generation_state","active"), "coordinate_version":meta.get("coordinate_version",1)}
 
 
 def archive_surveys(db):
@@ -31,6 +34,7 @@ def archive_surveys(db):
         identity=(meta.get("source_sha256")+":"+str(date)) if meta.get("source_sha256") else meta.get("replay_id",raw.id)
         g=group(identity,meta.get("survey_name") or raw.name.split(" \u00b7 ")[0])
         raw_groups[raw.id]=g["id"];g["raw"].append(dataset_info(raw))
+        if not visible(raw): continue
         if date:g["starts"].append(date)
         if raw.acquisition_ended_at:g["ends"].append(survey_date_key(raw.acquisition_ended_at))
         cell=meta.get("block",{})
@@ -57,7 +61,7 @@ def archive_surveys(db):
         gid=proc_groups.get(p.id) or (next(iter(source_groups)) if len(source_groups)==1 else None)
         g=groups[gid] if gid else group(p.id,(p.viewer_config_json or {}).get("survey_name") or p.name)
         g["processed"].append(dataset_info(p))
-        if p.raw_dataset_id in raw_groups and p.status=="completed":
+        if visible(p) and p.raw_dataset_id in raw_groups and p.status=="completed":
             raw=raw_by_id[p.raw_dataset_id]
             cell=(p.viewer_config_json or {}).get("block_snapshot") or (raw.metadata_json or {}).get("block",{})
             if all(k in cell for k in ("size","column","row")):

@@ -319,10 +319,13 @@ def run_processing_pipeline(db: Session, job_id: str):
         proc.location_id = raw.location_id
         proc.processing_version = "bathymetry-mesh-v1"
         proc.processing_version_json = PROCESSING_VERSION.model_dump(mode="json")
+        proc.processing_version_json["coordinate_version"] = (raw.metadata_json or {}).get("coordinate_version", 1)
         proc.coordinate_system_json = raw.coordinate_system_json or bathymetry.metadata
         proc.quality_report_json = quality_report.model_dump(mode="json")
         proc.metrics_json = metrics
         proc.viewer_config_json = {"primary":"point_cloud_xyz", "ai_layers":projected_layers.get("layers", []),
+            "coordinate_version":(raw.metadata_json or {}).get("coordinate_version", 1),
+            "generation_state":(raw.metadata_json or {}).get("generation_state", "active"),
             "revision":job.id,"block_snapshot":(raw.metadata_json or {}).get("block"),
             "snapshot_sha256":(raw.metadata_json or {}).get("snapshot_sha256")}
         old_keys = []

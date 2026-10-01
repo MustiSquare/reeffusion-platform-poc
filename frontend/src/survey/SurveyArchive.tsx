@@ -1,4 +1,6 @@
 import SurveyTiming from './SurveyTiming';
+import SurveyXyzExport from './SurveyXyzExport';
+import SurveyRepair from './SurveyRepair';
 import { useEffect, useState } from 'react';
 import { getJson, deleteJson, putJson, assetUrl } from '../api/client';
 import {WorldThumbnail, ArchiveConditions} from './ArchiveExplorer';
@@ -15,6 +17,7 @@ export default function SurveyArchive({raw,proc,open,openRaw,openSurvey,onSurvey
   const [expanded,setExpanded]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const [renaming,setRenaming]=useState<string|null>(null),[name,setName]=useState('');
   const [expandedArea,setExpandedArea]=useState<string|null>(null);
+  const [showLegacy,setShowLegacy]=useState(false);
   const [groups,setGroups]=useState<any[]>([]);
   useEffect(()=>{let cancelled=false;getJson('/api/survey/archive').then(data=>{if(!cancelled)setGroups(data);}).catch(e=>{if(!cancelled)setError(e.message);});return()=>{cancelled=true;};},[raw,proc]);
   async function rename(group:any){
@@ -61,6 +64,8 @@ export default function SurveyArchive({raw,proc,open,openRaw,openSurvey,onSurvey
       </div>
       <ArchiveConditions id={group.id}/>
       <div className="archive-survey-actions">
+      <SurveyXyzExport surveyId={group.id} disabled={busy}/>
+      <SurveyRepair surveyId={group.id} disabled={busy} onComplete={refresh}/>
       <button disabled={busy||!group.processed_cells} title={!group.processed_cells?'Process survey data first':undefined} onClick={()=>openSurvey?.(group.id)}>Open survey map</button>
       <button disabled={busy} onClick={()=>{setRenaming(group.id);setName(group.name);setError('');}}>Rename</button>
       <button className="archive-delete-survey" disabled={busy} onClick={()=>removeSurvey(group)}>Delete entire survey</button>
@@ -71,8 +76,11 @@ export default function SurveyArchive({raw,proc,open,openRaw,openSurvey,onSurvey
         <button type="button" disabled={busy} onClick={()=>setRenaming(null)}>Cancel</button>
       </form>}
       {!group.processed_cells&&<small>Process survey data before opening the map.</small>}
-      {expanded===group.id&&<div className="archive-survey-content">{(['raw','processed'] as const).map(kind=><div key={kind}><h3>{kind==='raw'?'Raw datasets':'Processed datasets and files'}</h3>
-        {group[kind].map((dataset:any)=><article className="archive-dataset" key={dataset.id}>
+      {expanded===group.id&&<div className="archive-survey-content">
+        {[...group.raw,...group.processed].some((dataset:any)=>dataset.generation_state==='legacy')&&<label><input type="checkbox" checked={showLegacy} onChange={e=>setShowLegacy(e.target.checked)}/> Show retained legacy results and annotations</label>}
+        {(['raw','processed'] as const).map(kind=><div key={kind}><h3>{kind==='raw'?'Raw datasets':'Processed datasets and files'}</h3>
+        {group[kind].filter((dataset:any)=>dataset.generation_state!=='staged'&&(showLegacy||dataset.generation_state!=='legacy')).map((dataset:any)=><article className="archive-dataset" key={dataset.id}>
+          {dataset.generation_state==='legacy'&&<small>Legacy coordinates · previous surface and annotations retained</small>}
           <div className="archive-dataset-heading"><strong>{dataset.name}</strong><div><button disabled={busy||(kind==='processed'&&dataset.status!=='completed')} onClick={()=>kind==='raw'?openRaw(dataset):open(dataset,group.id)}>Open</button><button disabled={busy} onClick={()=>remove(dataset,kind)}>Delete</button></div></div>
           <Files dataset={dataset} kind={kind}/>
         </article>)}

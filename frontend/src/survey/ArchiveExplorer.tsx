@@ -32,7 +32,7 @@ export function ArchiveConditions({id}: {id:string}){
   </>}</div>;
 }
 
-export function CellMap({cells,selected,onCell,compact=false,coverage=[]}:any){
+export function CellMap({cells,selected,onCell,compact=false,coverage=[],detectionPolygons=[]}:any){
   const host=useRef<HTMLDivElement>(null),map=useRef<L.Map|null>(null),layer=useRef<L.FeatureGroup|null>(null),callback=useRef(onCell);
   callback.current=onCell;
   const [tileError,setTileError]=useState(false);
@@ -53,6 +53,9 @@ export function CellMap({cells,selected,onCell,compact=false,coverage=[]}:any){
   },[geometry]);
   useEffect(()=>{
     if(!layer.current)return;layer.current.clearLayers();
+    for(const polygon of detectionPolygons){
+      L.polygon(polygon.map((p:number[])=>[p[1],p[0]]),{pane:'archiveSoundings',stroke:false,fillColor:'#e9e36c',fillOpacity:.45,interactive:false}).addTo(layer.current!);
+    }
     cells.forEach((c:any)=>{
       if(!c.footprint)return;
       const points=c.footprint.map((p:number[])=>[p[1],p[0]]);
@@ -64,7 +67,7 @@ export function CellMap({cells,selected,onCell,compact=false,coverage=[]}:any){
       const depth=Math.max(0,-point[2]);
       L.circleMarker([point[1],point[0]],{pane:'archiveSoundings',radius:2,color:`hsl(${185+Math.min(70,depth)},80%,${65-Math.min(30,depth/3)}%)`,weight:0,fillOpacity:.85,interactive:false}).addTo(layer.current!);
     }
-  },[cells,selected,coverage]);
+  },[cells,selected,coverage,detectionPolygons]);
   return <><div ref={host} style={{height:compact?230:540,borderRadius:12,margin:'12px 0'}} aria-label="Archived survey cells map"/>{tileError&&<small>Basemap unavailable; survey cells remain selectable.</small>}</>;
 }
 
@@ -73,6 +76,12 @@ export default function ArchiveExplorer({survey,selected,setSelected,open,openAr
   useEffect(()=>{setSize(survey.cells.find((c:any)=>selected.includes(c.dataset_id))?.size??survey.grids[0]?.size);setError('');},[survey.id,compact]);
   const grid=size??survey.grids[0]?.size;
   const [coverage,setCoverage]=useState<any>(null),[coverageError,setCoverageError]=useState('');
+  const [showDetections,setShowDetections]=useState(false),[detections,setDetections]=useState<any>(null);
+  useEffect(()=>{
+    let cancelled=false;setDetections(null);
+    if(showDetections)getJson(`/api/survey/archive/${survey.id}/detection-coverage`).then(data=>{if(!cancelled)setDetections(data);}).catch(e=>{if(!cancelled)setDetections({reason:e.message});});
+    return()=>{cancelled=true;};
+  },[survey.id,showDetections]);
   useEffect(()=>{
     let cancelled=false;setCoverage(null);setCoverageError('');
     if(grid!=null)getJson(`/api/survey/archive/${survey.id}/coverage?size=${grid}`).then(data=>{if(!cancelled)setCoverage(data);}).catch(()=>{if(!cancelled)setCoverageError('Measured point coverage unavailable.');});
@@ -103,7 +112,10 @@ export default function ArchiveExplorer({survey,selected,setSelected,open,openAr
     </div>
     {error&&<p role="alert">{error}</p>}
     <p>Teal: processed · Amber: not processed · Pink: selected. Click a processed cell to {multi&&!compact?'select it':'open it in the processed viewer'}.</p>
-    {cells.some((c:any)=>c.footprint)?<CellMap cells={cells} selected={selected} onCell={busy?()=>{}:click} compact={compact} coverage={coverage?.points||[]}/>:<p>Cell footprints unavailable for this dataset.</p>}
+    <p>{compact?`Viewing ${selected.length} selected cells of ${cells.length} survey cells.`:`Whole survey map: ${cells.length} cells. The 3D viewer opens selected processed surfaces.`}</p>
+    <label><input type="checkbox" checked={showDetections} onChange={e=>setShowDetections(e.target.checked)}/> Show full detection footprint (yellow, 1 m squares)</label>
+    {showDetections&&<small>{detections?.reason||(!detections?'Loading full detection coverage…':`${detections.occupied_square_metres?.toLocaleString()} occupied 1 m squares · no sampling`)}</small>}
+    {cells.some((c:any)=>c.footprint)?<CellMap cells={cells} selected={selected} onCell={busy?()=>{}:click} compact={compact} coverage={coverage?.points||[]} detectionPolygons={showDetections?detections?.polygons||[]:[]}/>:<p>Cell footprints unavailable for this dataset.</p>}
     <small>{coverageError||(!coverage?'Loading measured point coverage...':`Measured point coverage: ${coverage.total_points?.toLocaleString()??0} points${coverage.sampled?' (sampled map preview)':''}.`)}</small>
     {coverage?.warnings?.map((warning:string)=><small key={warning}>{warning}</small>)}
     {!compact&&<ArchiveConditions id={survey.id}/>}

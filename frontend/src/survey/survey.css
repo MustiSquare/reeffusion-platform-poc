@@ -118,3 +118,6 @@
 .archive-time-range { margin-top:4px; color:var(--text-muted); overflow-wrap:anywhere; }
 .archive-timing-unavailable { padding:8px 12px; color:var(--text-muted); font-size:12px; }
 @media(max-width:600px){.archive-timing {grid-template-columns:1fr;gap:10px;}}
+.survey-xyz-export { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.survey-xyz-export small { flex-basis:100%; }
+.survey-export-warning { color:#9b5b0b; }

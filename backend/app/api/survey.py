@@ -13,6 +13,7 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, Form, Header
 from pydantic import BaseModel, Field, field_validator
 from pyproj import Transformer
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -24,8 +25,9 @@ from app.services.overwrite import require_overwrite, survey_date_key, previous_
 from app.models.tables import RawDataset, RawAsset, SurveyLocation, ProcessingJob, ProcessedDataset
 from app.services.processed_export import record_export
 from app.services.auth import require_role
-from app.services.survey_replay import decode_sonar, block_snapshot
+from app.services.survey_replay import decode_sonar, block_snapshot, COORDINATE_VERSION
 from app.storage.s3 import store
+from app.services.survey_repair import visible
 
 router = APIRouter(prefix="/api/survey", tags=["survey playback"])
 
@@ -33,8 +35,9 @@ router = APIRouter(prefix="/api/survey", tags=["survey playback"])
 @router.get("/results")
 def completed_results(db: Session = Depends(get_db)):
     results = []
-    datasets = db.query(ProcessedDataset).filter(ProcessedDataset.status == "completed").order_by(ProcessedDataset.created_at.desc()).limit(100).all()
+    datasets = db.query(ProcessedDataset).filter(ProcessedDataset.status == "completed").order_by(ProcessedDataset.created_at.desc()).all()
     for dataset in datasets:
+        if not visible(dataset): continue
         raw = db.get(RawDataset, dataset.raw_dataset_id) if dataset.raw_dataset_id else None
         # A pipeline can create its dataset before finishing. Only expose finished jobs.
         job = db.query(ProcessingJob).filter_by(result_processed_dataset_id=dataset.id, status="completed").first()
@@ -46,7 +49,7 @@ def completed_results(db: Session = Depends(get_db)):
                         "replay_id": (raw.metadata_json or {}).get("replay_id") if raw else None,
                         "export": export,
                         "files": [{"name": a.file_name, "asset_type": a.asset_type, "url": f"/api/assets/{a.id}"} for a in dataset.assets]})
-    return results
+    return results[:100]
 
 
 @router.post("/results/{dataset_id}/export")
@@ -61,13 +64,12 @@ def retry_export(dataset_id: UUID, db: Session = Depends(get_db), _principal=Dep
     return result
 
 
-@lru_cache(maxsize=3)
 def load_replay(session_id: str):
     try:
         storage = store()
         key = f"replays/{session_id}/replay.json"
         replay=json.loads(storage.get_bytes(key, progress=lambda done,total:report(15+50*done/max(1,total), "Reading saved survey")))
-        if replay.get("vertical_reference_version") != 2:
+        if replay.get("vertical_reference_version") != 2 or replay.get("coordinate_version") != COORDINATE_VERSION:
             for extension in ("svlz","svlog"):
                 try:
                     with store().open_read(f"replays/{session_id}/source.{extension}") as source:
@@ -81,15 +83,16 @@ def load_replay(session_id: str):
                 except ClientError as exc:
                     if exc.response["Error"]["Code"] in {"NoSuchKey","404"}:continue
                     raise
-                by_time={f['t']:f for f in decoded['frames']}
-                for frame in replay['frames']:
-                    frame['vertical_samples']=by_time.get(frame['t'],{}).get('vertical_samples',[])
-                    frame['sounding_altitudes']=by_time.get(frame['t'],{}).get('sounding_altitudes',[])
-                replay['vertical_reference_version']=2
+                # Replace all geometry, preserving identity and the original recording.
+                replay = {**replay, **decoded, "name": replay["name"]}
+                replay.pop("motion_summary", None)
                 storage.put_bytes(key,json.dumps(replay,separators=(",", ":")).encode(),"application/json")
                 if decoded.get("motion_summary") is not None:
                     storage.put_bytes(f"replays/{session_id}/motion.json",json.dumps(decoded["motion_summary"]).encode(),"application/json")
                 break
+            else:
+                replay = {**replay, "coordinate_status": "legacy",
+                          "repair_unavailable": "The original recording is missing; coordinates cannot be corrected."}
         return replay
     except ClientError as exc:
         if exc.response["Error"]["Code"] in {"NoSuchKey", "404"}:
@@ -114,7 +117,7 @@ def save_replay(data, name, db=None, survey_name=None, overwrite=False):
         try:
             index = json.loads(store().get_bytes(f"replay-cache/{digest}.json"))
             candidate = json.loads(store().get_bytes(f"replays/{index['id']}/replay.json"))
-            if candidate.get("decoder_version") == 1 and candidate.get("source_sha256") == digest:
+            if candidate.get("decoder_version") == 1 and candidate.get("coordinate_version") == COORDINATE_VERSION and candidate.get("source_sha256") == digest:
                 cached = candidate
         except ClientError as exc:
             if exc.response["Error"]["Code"] not in {"NoSuchKey", "404"}: raise
@@ -143,6 +146,8 @@ def save_replay(data, name, db=None, survey_name=None, overwrite=False):
     if db is not None:
         previous = [r.id for r in db.query(RawDataset).filter_by(source="survey_replay").all()
                     if (r.metadata_json or {}).get("replay_id") == session_id]
+        from app.services.survey_repair import check_mutation
+        check_mutation(db, session_id)
         require_overwrite(db, previous, session_id, overwrite is True)
         for raw_id in previous:
             raw = db.get(RawDataset, raw_id)
@@ -228,6 +233,7 @@ def processed_blocks(session_id: UUID, db: Session = Depends(get_db)):
     cells = {}
     for processed, raw in rows:
         meta = raw.metadata_json or {}
+        if not visible(raw) or not visible(processed): continue
         if meta.get("replay_id") != str(session_id):
             continue
         block = (processed.viewer_config_json or {}).get("block_snapshot") or meta.get("block", {})
@@ -250,6 +256,12 @@ class BlockRequest(BaseModel):
 
 def block_data(session_id, body):
     replay = load_replay(str(session_id))
+    if replay.get("coordinate_status") == "legacy":
+        raise HTTPException(409, replay["repair_unavailable"])
+    return encode_block(session_id, body, replay)
+
+
+def encode_block(session_id, body, replay):
     points = block_snapshot(replay, body.column, body.row, body.size, body.until)
     if not points:
         raise HTTPException(422, "This block has no measurements at the playback cursor")
@@ -258,6 +270,7 @@ def block_data(session_id, body):
     out.write("# crs=LOCAL_GRID\n# xy_units=meters\n# vertical_datum=vehicle_origin_uncorrected\n# support_radius_m=2\n")
     out.write(f"# projected_crs={replay['crs']}\n# origin_easting={body.column*body.size}\n# origin_northing={body.row*body.size}\n")
     out.write(f"# replay_id={session_id}\n# replay_until_seconds={body.until}\n")
+    out.write(f"# coordinate_version={replay.get('coordinate_version', 1)}\n")
     writer = csv.writer(out)
     writer.writerow(["x", "y", "z"])
     writer.writerows(points)
@@ -272,7 +285,13 @@ def export_block(session_id: UUID, body: BlockRequest):
 
 @router.post("/replays/{session_id}/blocks")
 def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get_db), _principal=Depends(require_role("editor")), overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite")):
+    from app.services.survey_repair import check_mutation
+    check_mutation(db, str(session_id))
     replay, points, data = block_data(session_id, body)
+    return persist_block(session_id, body, db, replay, points, data, overwrite=overwrite)
+
+
+def persist_block(session_id, body, db, replay, points, data, overwrite=False, generation_state="active", allow_sparse=False):
     reference = block_reference(replay,body.column,body.row,body.size,body.until)
     sounding_data=sounding_reference(replay,body.column,body.row,body.size,body.until)
     def save_soundings(raw):
@@ -284,16 +303,18 @@ def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get
             asset=RawAsset(dataset_id=raw.id,asset_type='sounding_references');db.add(asset)
         asset.file_name='sounding_references.json';asset.object_key=key;asset.media_type='application/json';asset.size_bytes=len(payload)
         raw.coordinate_system_json={**(raw.coordinate_system_json or {}),'sounding_reference_version':2}
-    if len(points) < 4 or len({p[0] for p in points}) < 2 or len({p[1] for p in points}) < 2:
+    if not allow_sparse and (len(points) < 4 or len({p[0] for p in points}) < 2 or len({p[1] for p in points}) < 2):
         raise HTTPException(422, "Keep displaying/exporting these points; a surface needs at least four points spread across both axes")
     digest = hashlib.sha256(data).hexdigest()
-    dataset_id = str(uuid5(NAMESPACE_URL, f"reef-cell/{session_id}/{body.size}/{body.column}/{body.row}"))
+    version = replay.get("coordinate_version", 1)
+    generation = replay.get("geometry_generation", "preview")
+    dataset_id = str(uuid5(NAMESPACE_URL, f"reef-cell/{session_id}/coordinates-v{version}/{generation}/{body.size}/{body.column}/{body.row}"))
     existing = db.query(RawDataset).filter_by(id=dataset_id).with_for_update().first()
     if not existing:
         for candidate in db.query(RawDataset).filter_by(source="survey_replay").order_by(RawDataset.created_at.desc()).all():
             meta = candidate.metadata_json or {}
             cell = meta.get("block", {})
-            if meta.get("replay_id") == str(session_id) and all(cell.get(k) == getattr(body,k) for k in ("size","column","row")):
+            if meta.get("replay_id") == str(session_id) and meta.get("coordinate_version", 1) == version and meta.get("geometry_generation", "preview") == generation and all(cell.get(k) == getattr(body,k) for k in ("size","column","row")):
                 existing = db.query(RawDataset).filter_by(id=candidate.id).with_for_update().one()
                 dataset_id = existing.id
                 break
@@ -301,8 +322,6 @@ def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get
         require_overwrite(db, [existing.id], str(session_id), overwrite is True)
         job = db.query(ProcessingJob).filter_by(raw_dataset_id=dataset_id).order_by(ProcessingJob.created_at.desc()).first()
         same = (existing.metadata_json or {}).get("snapshot_sha256") == digest
-        if not same and (existing.metadata_json or {}).get("block") == body.model_dump():
-            same = True  # legacy snapshot without a saved checksum
         same = same and (existing.coordinate_system_json or {}).get("sea_level_reference") == reference and (existing.coordinate_system_json or {}).get('sounding_reference_version')==2
         if job and job.status not in ("completed", "failed"):
             if not same:
@@ -326,12 +345,13 @@ def import_block(session_id: UUID, body: BlockRequest, db: Session = Depends(get
     inverse = Transformer.from_crs(replay["crs"], 4326, always_xy=True)
     ox, oy = body.column * body.size, body.row * body.size
     lon, lat = inverse.transform(ox + body.size/2, oy + body.size/2)
-    metadata = {"snapshot_sha256": digest, "survey_name": replay["name"], "source": "survey_replay", "replay_id": str(session_id), "block": body.model_dump(),
+    metadata = {"coordinate_version": version, "generation_state": generation_state, "geometry_generation": generation,
+                "snapshot_sha256": digest, "survey_name": replay["name"], "source_name": replay.get("source_name", replay["name"]), "source": "survey_replay", "replay_id": str(session_id), "block": body.model_dump(),
                 "projected_crs": replay["crs"], "projected_origin": [ox, oy],
                 "point_count": len(points), "source_sha256": replay["source_sha256"],
                 "warnings": replay["warnings"], "support_radius_m": 2,
                 "surface_note": "Only faces supported within 2 m of measurements are exported; analysis still uses the interpolated grid."}
-    coordinate = {"crs": "LOCAL_GRID", "coordinate_system": "projected_or_local", "horizontal_units": "meters",
+    coordinate = {"coordinate_version": version, "crs": "LOCAL_GRID", "coordinate_system": "projected_or_local", "horizontal_units": "meters",
                   "vertical_units": "meters", "vertical_datum": replay["vertical_datum"],
                   "vertical_convention": "elevation_positive_up", "projected_crs": replay["crs"], "projected_origin": [ox, oy]}
     coordinate["sea_level_reference"] = reference
@@ -439,6 +459,81 @@ def archive_detail(survey_key: UUID,db: Session = Depends(get_db)):
     if not summary['processed_cells']:
         raise HTTPException(409,"Process the survey data before opening its survey map")
     return summary
+
+
+@router.get("/archive/{survey_key}/xyz-export")
+def xyz_export_status(survey_key: UUID, db: Session = Depends(get_db)):
+    from app.services.survey_xyz_export import source_for, status
+    storage = store()
+    try:
+        return status(source_for(archived_survey(survey_key, db), db, storage), storage)
+    except RedisError as exc:
+        raise HTTPException(503, "Export progress is temporarily unavailable. Retrying is safe.") from exc
+
+
+@router.get("/archive/{survey_key}/repair")
+def repair_status(survey_key: UUID, db: Session = Depends(get_db)):
+    from app.services.survey_repair import status
+    try:
+        return status(archived_survey(survey_key, db), db, store())
+    except RedisError as exc:
+        raise HTTPException(503, "Rebuild progress unavailable; retry shortly") from exc
+
+
+@router.post("/archive/{survey_key}/repair")
+def repair_start(survey_key: UUID, db: Session = Depends(get_db), _principal=Depends(require_role("editor"))):
+    from app.services.survey_repair import start
+    from app.worker import repair_survey
+    from kombu.exceptions import OperationalError
+    try:
+        return start(archived_survey(survey_key, db), db, store(), repair_survey.delay)
+    except (RedisError, OperationalError) as exc:
+        raise HTTPException(503, "The rebuild queue is unavailable. Previous results are retained; retry shortly.") from exc
+
+
+@router.get("/archive/{survey_key}/detection-coverage")
+def detection_coverage(survey_key: UUID, db: Session = Depends(get_db)):
+    summary = archived_survey(survey_key, db)
+    for item in summary["raw"]:
+        raw = db.get(RawDataset, item["id"])
+        result = (raw.metadata_json or {}).get("repair_result", {})
+        if visible(raw) and result.get("coverage_key"):
+            return json.loads(store().get_bytes(result["coverage_key"]))
+    return {"polygons": [], "reason": "Rebuild survey coordinates to prepare full detection coverage."}
+
+
+@router.post("/archive/{survey_key}/xyz-export")
+def xyz_export_start(survey_key: UUID, db: Session = Depends(get_db), _principal=Depends(require_role("editor"))):
+    from app.services.survey_xyz_export import start_export
+    from app.worker import export_survey_xyz
+    from kombu.exceptions import OperationalError
+    try:
+        return start_export(archived_survey(survey_key, db), db, store(), export_survey_xyz.delay)
+    except (RedisError, OperationalError) as exc:
+        raise HTTPException(503, "The export queue is temporarily unavailable. Retry the export.") from exc
+
+
+@router.get("/archive/{survey_key}/xyz-export/download")
+def xyz_export_download(survey_key: UUID, db: Session = Depends(get_db)):
+    from contextlib import closing
+    from fastapi.responses import StreamingResponse
+    from app.services.survey_xyz_export import source_for, cached_export, download_name
+    summary = archived_survey(survey_key, db)
+    storage = store()
+    source = source_for(summary, db, storage)
+    manifest = cached_export(storage, source) if source else None
+    if not manifest:
+        raise HTTPException(409, "Prepare the XYZ export before downloading")
+    name = download_name(summary["name"], manifest.get("started_at") or summary.get("started_at"), manifest["partial"])
+    response = storage.client.get_object(Bucket=storage.bucket, Key=manifest["object_key"])
+    def chunks():
+        with closing(response["Body"]) as body:
+            while chunk := body.read(1024 * 1024):
+                yield chunk
+    return StreamingResponse(chunks(), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="{name}"',
+        "Content-Length": str(response["ContentLength"]),
+    })
 
 
 class SurveyRename(BaseModel):

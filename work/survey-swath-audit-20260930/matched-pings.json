@@ -1,0 +1,36 @@
+{
+  "method": "Within each ping, pair unique power (within 0.05001 dB) and non-MSL height (within 0.05 m); rigid XY fit; exclude >0.5 m residual candidates and refit. Rounded fields cannot identify every detection uniquely.",
+  "first_two_pings_formula_vs_actual_csv_max_error_m": 4.999396452376459e-10,
+  "pings": [
+    {
+      "ping": 129924,
+      "channel": 0,
+      "raw_packet_detections": 489,
+      "application_export_detections": 371,
+      "sonarview_export_detections": 461,
+      "candidate_power_depth_matches": 272,
+      "inliers_after_half_metre_residual_check": 261,
+      "fitted_rotation_degrees": 89.02776435051591,
+      "utm_meridian_convergence_degrees": -0.9720889309926323,
+      "xy_error_before_median_m": 12.65245393053572,
+      "xy_error_after_rotation_translation_median_m": 0.005338935944399992,
+      "xy_error_after_p95_m": 0.009073140675445172,
+      "absolute_z_difference_median_m": 0.020356938478097497
+    },
+    {
+      "ping": 129929,
+      "channel": 1,
+      "raw_packet_detections": 521,
+      "application_export_detections": 406,
+      "sonarview_export_detections": 513,
+      "candidate_power_depth_matches": 303,
+      "inliers_after_half_metre_residual_check": 295,
+      "fitted_rotation_degrees": 89.02767191614936,
+      "utm_meridian_convergence_degrees": -0.9720889309926323,
+      "xy_error_before_median_m": 12.48713150067698,
+      "xy_error_after_rotation_translation_median_m": 0.003601803944285116,
+      "xy_error_after_p95_m": 0.008288519823809579,
+      "absolute_z_difference_median_m": 0.020450331292972912
+    }
+  ]
+}

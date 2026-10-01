@@ -1,5 +1,73 @@
 # Live Survey playback
 
+### Full-survey XYZ CSV export
+
+Each survey row in **Data Archive** has **Export XYZ CSV**. This reads the stored
+original SonarView recording independently of the playback cursor and processed
+cells. The export preserves each valid, supported sonar detection, including
+repeated positions. It bypasses the playback 500,000-point limit, 1 m averaging
+and 6,000-point map preview cap; those playback limits remain unchanged.
+
+The CSV contains `x,y,z` in WGS84 UTM metres with negative vehicle-relative Z.
+Comment headers identify the EPSG code, source recording, point count, units,
+vertical datum, format version and partial status. No viewer MSL offset, tide
+correction or vertical exaggeration is applied. Geometry uses the same decoder,
+navigation synchronization, mounting, power and validity checks as playback.
+Downloads use the current survey name and recording acquisition date.
+
+Preparation runs in the existing Celery worker. The archive shows progress and
+then **Download XYZ CSV**, or **Download partial CSV** with warnings and the
+recovered count. Damaged compression, truncated/malformed packets, unsupported
+point packets, unpaired pings, missing mounts, additional sessions and the
+configured decompression limit produce an explicitly partial result. Partial
+filenames contain `_partial`. Empty results fail with an explanation and can be
+retried. Surveys without an available original recording explain why export is
+unavailable; generated reef points are never substituted.
+
+The worker hashes the original while streaming it to temporary disk, streams
+detections to another temporary file, then adds the final metadata headers.
+Memory does not grow with the point count. Temporary disk must accommodate the
+recording plus roughly two copies of its XYZ output. Temporary files close on
+success or failure. CSVs and manifests are retained under
+`replays/<id>/xyz-v1/`, keyed by source SHA-256 and format version; a change to the
+configured decompression limit also invalidates the cache. Survey deletion
+removes these outputs with the recording. No database migration is needed.
+
+Requests for the same recording share a leased job. A heartbeat renews the lease
+while the worker runs; an interrupted or never-started job becomes retryable
+after at most five minutes. Duplicate task delivery cannot start another writer.
+Retry removes abandoned CSV attempts and incomplete multipart uploads while
+preserving the last published export. Deletion also aborts unfinished uploads.
+Deletion is blocked during preparation. Database row locks serialize export
+startup/publication with deletion. Redis must be available to check deletion
+safety for surveys that have requested exports.
+
+Survey-scoped endpoints:
+
+- `POST /api/survey/archive/{survey_id}/xyz-export`: prepare or reuse an export
+  (same editor authorization as processing).
+- `GET /api/survey/archive/{survey_id}/xyz-export`: availability, state, progress,
+  errors, warnings and recovered point count.
+- `GET /api/survey/archive/{survey_id}/xyz-export/download`: stream the completed
+  CSV through the backend without loading it into browser/backend memory.
+
+Restart the backend and worker after installing this change so the new routes
+and Celery task are registered.
+
+Validation on 2026-09-30: the stored 500,028,324-byte recording
+`2026-08-21-20-15.svlz` exported 25,951,295 individual detections into a
+1,273,439,389-byte CSV. Streaming the download through the backend confirmed
+every row and the byte count; another prepare request reused the same object.
+The result was explicitly partial because one point packet lacked its matching
+ping. Worker peak resident memory was 241,208 KiB (about 236 MiB), including
+multipart upload buffers; decoding stayed near 131 MiB. The smaller damaged
+recording also completed, exporting 3,283,621 recovered detections with its
+compression warning. Tests cover coordinates, repeated detections beyond the
+preview limit, invalid/empty inputs, cache invalidation, duplicate requests,
+interruption, retry, deletion protection, metadata and archive controls.
+
+### Playback controls
+
 Open **Live Survey**, then load a `.svlz` or `.svlog` recording (default maximum 2 GiB).
 Uploads are decoded and stored as streams. `SURVEY_UPLOAD_LIMIT_MB` (default 2048)
 and `SURVEY_DECOMPRESSED_LIMIT_MB` (default 16384) configure the limits in MiB.
@@ -113,3 +181,61 @@ from the same survey, edges within 2 m of the shared boundary and supporting
 soundings within 2 m. Unsupported gaps remain open. Small four-tile corner holes
 are closed only when all four measured boundary chains are present. Existing
 combined views upgrade in place on reopening; original cell meshes are untouched.
+
+## Coordinate correction and full-recording recovery (coordinate version 2)
+
+The September 2026 comparison with SonarView identified a horizontal frame error
+in individual detections, upstream of the mesh and viewer. The decoder now applies
+the RX array-to-forward yaw conversion before vehicle heading and projects true
+north/east offsets geodesically into UTM. A global rotation of a finished mesh is
+not a substitute. Medium power, range, classification and navigation filters are
+unchanged, as are negative vehicle-origin depths. Rejection counters are included
+in XYZ metadata and rebuild results.
+
+Coordinate version is independent of CSV format version. It is recorded in replay,
+export, raw-cell and processed metadata. Legacy replay geometry is fully decoded
+again from its original source when opened; old XYZ caches cannot be reused.
+Legacy surfaces never receive newly corrected sounding overlays.
+
+`GET/POST /api/survey/archive/{survey_id}/repair` reports or starts a background
+rebuild. This streams all recoverable supported detections into temporary SQLite
+storage with an 8192-detection input buffer and an 8 MiB SQLite cache. Weighted
+1 m bins retain detection counts and vertical references. Every occupied cell is
+reconsidered, including new outer cells; playback's 500,000-point cap is not used.
+Cells too sparse for a surface retain their raw measurements and coverage.
+
+Each attempt creates a separate generation. All replacements are staged before a
+single database transaction activates the survey. Old raw cells, surfaces,
+combined views and annotations remain available as **legacy** archive entries;
+annotations are not transferred to different coordinates. Default maps, results
+and dataset lists use active generations. Mixed-version and legacy combinations
+are rejected. No database migration or source re-upload is required.
+
+Repair shares a renewable lease with XYZ export and uses raw-row locks when
+starting and activating. Deletion and cell processing are blocked during repair.
+An interrupted or failed attempt releases its lease (or expires after 300 seconds)
+and can be retried; stale deliveries cannot activate a newer generation. Previous
+results remain active on failure. Retried attempts use distinct IDs so an old
+worker cannot overwrite the new attempt. Partial recovery is labelled with its
+warnings and point count. Missing originals have an explicit unavailable reason.
+
+The archive map's optional full-detection footprint uses every occupied 1 m
+square, compressed as horizontal runs, rather than sampled points. It is served
+by `GET /api/survey/archive/{survey_id}/detection-coverage` after rebuild. This is
+recorded coverage, not interpolated seafloor area. The 3D viewer still shows
+processed surfaces for selected cells, with its existing support rules.
+
+Georeferenced reef renders open with **North-up locked**: true north stays at the
+top and east to the right, with tilt, pan and zoom available. Turn off North-up
+for free rotation and the side view. Opening another dataset restores the lock.
+The display accounts for UTM meridian convergence; measurements and stored
+coordinates are unchanged. Datasets without geographic coordinates retain free
+rotation. This viewer change requires no survey reprocessing.
+
+Independent regression fixtures in `tests/fixtures/sonarview_coordinates.json`
+cover both channels and multiple headings from the supplied August recording.
+Reference association uses recorded power and consistent within-ping depth
+differences, with no XY fitting. The depth difference is used only to identify
+detections; output Z is unchanged. One of 20 sampled pings had no confident
+association and is excluded. The 19 matched pings pass the 10 cm horizontal
+95th-percentile requirement. See the local swath audit for full matching evidence.

@@ -1,0 +1,11 @@
+{
+  "paired_detections": 329,
+  "fitted_rotation_degrees": 89.02845222802974,
+  "uncorrected_xy_error_median_m": 18.91840773242976,
+  "rotated_xy_error_median_m": 0.07012450248311598,
+  "rotated_xy_error_p95_m": 0.07889594889595969,
+  "rotated_xy_error_max_m": 22.449903602381625,
+  "z_error_median_m": 0.02034672873639476,
+  "power_matching_tolerance_db": 0.05001,
+  "height_matching_tolerance_m": 0.05
+}

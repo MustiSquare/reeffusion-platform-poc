@@ -16,6 +16,13 @@ from app.services.tile_seams import join_tile_edges, SEAM_VERSION
 
 def combine_datasets(ids, db, storage):
     ids = sorted(set(map(str, ids)))
+    from app.services.survey_repair import visible
+    candidates = [db.get(ProcessedDataset, id) for id in ids]
+    if any(d is not None and not visible(d) for d in candidates):
+        raise HTTPException(409, "Choose active corrected cells; legacy views remain available individually")
+    versions = {(d.coordinate_system_json or {}).get("coordinate_version", 1) for d in candidates if d is not None}
+    if len(versions) > 1:
+        raise HTTPException(409, "Cannot combine cells with different coordinate versions; rebuild the affected survey")
     if not 1 <= len(ids) <= 20:
         raise HTTPException(422, "Select between 1 and 20 processed cells")
     if len(ids) == 1:

@@ -39,11 +39,16 @@ class ObjectStore:
     def delete_key(self, key):
         self.client.delete_object(Bucket=self.bucket, Key=key)
     def delete_prefix(self, prefix):
+        self.abort_multipart_uploads(prefix)
         paginator = self.client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
             objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
             if objects:
                 self.client.delete_objects(Bucket=self.bucket, Delete={"Objects": objects})
+    def abort_multipart_uploads(self, prefix):
+        for page in self.client.get_paginator("list_multipart_uploads").paginate(Bucket=self.bucket, Prefix=prefix):
+            for upload in page.get("Uploads", []):
+                self.client.abort_multipart_upload(Bucket=self.bucket, Key=upload["Key"], UploadId=upload["UploadId"])
     def presigned_url(self, key, expires=3600):
         return self.client.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=expires)
 

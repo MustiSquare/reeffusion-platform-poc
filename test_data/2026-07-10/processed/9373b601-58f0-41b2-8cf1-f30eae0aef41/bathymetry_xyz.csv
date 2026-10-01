@@ -1,0 +1,18 @@
+# crs=LOCAL_GRID
+# xy_units=meters
+# vertical_datum=vehicle_origin_uncorrected
+# support_radius_m=2
+# projected_crs=EPSG:32605
+# origin_easting=196150
+# origin_northing=2234400
+# replay_id=dcdb5edb-5695-52d6-b630-5f0eb162a928
+# replay_until_seconds=3797
+# coordinate_version=2
+x,y,z
+0.464,49.787,-28.075
+1.184,48.688,-27.851
+39.714,39.994,-2.288
+39.709,48.889,-29.834
+39.721,49.494,-29.999
+46.87,49.962,-31.152
+47.243,49.991,-31.124

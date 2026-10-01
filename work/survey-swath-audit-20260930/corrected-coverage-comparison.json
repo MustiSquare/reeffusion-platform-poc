@@ -1,0 +1,8 @@
+{
+  "corrected_occupied_1m_squares": 127291,
+  "previous_occupied_1m_squares": 40177,
+  "sonarview_occupied_1m_squares": 129497,
+  "corrected_intersection_with_sonarview": 126743,
+  "corrected_footprint_iou": 0.9746087892652543,
+  "previous_footprint_iou": 0.2937301278678775
+}

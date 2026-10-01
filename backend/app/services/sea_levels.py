@@ -71,4 +71,6 @@ def processed_sounding_reference(dataset,db,storage,load_replay,seen=None):
     if not meta.get('replay_id') or not all(k in block for k in ['column','row','size','until']):
         return {'version':2,'points':[],'note':'No recorded sonar distances for this dataset'}
     replay=load_replay(meta['replay_id'])
+    if replay.get('coordinate_version',1) != (dataset.coordinate_system_json or {}).get('coordinate_version',1):
+        return {'version':2,'points':[], 'note':'Legacy surface: corrected sounding coordinates cannot be overlaid on this older geometry.'}
     return sounding_reference(replay,block['column'],block['row'],block['size'],block['until'])

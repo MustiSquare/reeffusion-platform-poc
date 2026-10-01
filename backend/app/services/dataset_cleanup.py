@@ -42,6 +42,11 @@ def _remove_local_exports(dataset_id):
 
 
 def _check_active(db, raw_id):
+    if raw_id:
+        raw = db.query(RawDataset).filter_by(id=raw_id).populate_existing().with_for_update().first()
+        if raw:
+            from app.services.survey_xyz_export import check_deletion
+            check_deletion(db, raw)
     if raw_id and db.query(ProcessingJob).filter(ProcessingJob.raw_dataset_id == raw_id,
             ProcessingJob.status.notin_(["completed", "failed"])).first():
         raise HTTPException(409, "Wait for processing to finish before deleting this dataset")
@@ -96,7 +101,7 @@ def delete_raw_dataset(db: Session, dataset_id: str, object_store, *, commit=Tru
     if replay_id and not any((r.metadata_json or {}).get("replay_id") == replay_id for r in db.query(RawDataset).all()):
         object_store.delete_prefix(f"replays/{UUID(replay_id)}/")
         from app.api.survey import load_replay, load_motion
-        load_replay.cache_clear()
+        getattr(load_replay, "cache_clear", lambda: None)()
         load_motion.cache_clear()
     return {
         "deleted": True,
@@ -111,7 +116,7 @@ def delete_archived_survey(db, summary, object_store):
     processed_ids=[d['id'] for d in summary['processed']]
     # Check every member before deleting any files. Hold raw rows against new jobs.
     if raw_ids:
-        db.query(RawDataset).filter(RawDataset.id.in_(raw_ids)).with_for_update().all()
+        db.query(RawDataset).filter(RawDataset.id.in_(raw_ids)).order_by(RawDataset.id).with_for_update().all()
     for raw_id in raw_ids:
         _check_active(db,raw_id)
     raw_members=db.query(RawDataset).filter(RawDataset.id.in_(raw_ids)).all()

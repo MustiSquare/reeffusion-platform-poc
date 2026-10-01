@@ -1,0 +1,213 @@
+{
+  "app": {
+    "file": "C:\\Users\\synap\\Downloads\\2026-08-21-23-13.svlz_2026-08-21_xyz.csv",
+    "bytes": 1321637205,
+    "rows": 26680028,
+    "header": [
+      "# Full-survey individual sonar detections",
+      "# crs=EPSG:32605",
+      "# point_count=26680028",
+      "# partial=false",
+      "# warnings=[]",
+      "# skipped={}",
+      "# started_at=2026-08-21T23:13:33.179000+00:00",
+      "# vertical_datum=vehicle_origin_uncorrected",
+      "# format_version=1",
+      "# source_recording=replays/7cf108ed-790e-57ca-a554-c7ce300f0e04/source.svlz",
+      "# xy_units=metres",
+      "# z_units=metres",
+      "# vertical_convention=elevation_positive_up",
+      "# No draft, tide, MSL offset or vertical exaggeration applied.",
+      "# Provisional geometry: verify mounting and heading against SonarView.",
+      "x,y,z"
+    ],
+    "groups": {
+      "all": {
+        "count": 26680028,
+        "min_xyz": [
+          202956.521244243,
+          2217486.311806069,
+          -29.944423632
+        ],
+        "max_xyz": [
+          203476.012878177,
+          2217945.952312322,
+          -1.771e-06
+        ],
+        "span_xyz": [
+          519.491633933998,
+          459.64050625264645,
+          29.944421861
+        ],
+        "occupied_1m_cells": 40177
+      }
+    },
+    "classes": {},
+    "channels": {},
+    "elapsed_range": null,
+    "ping_range": null,
+    "sample_quantiles_xyz": [
+      [
+        202961.889050451,
+        2217487.10457059,
+        -29.898742583
+      ],
+      [
+        202980.620958366,
+        2217513.910909051,
+        -23.499967299
+      ],
+      [
+        203220.922553707,
+        2217682.199172174,
+        -10.935596091
+      ],
+      [
+        203446.898605456,
+        2217891.688974501,
+        -0.452711567
+      ],
+      [
+        203475.463587914,
+        2217945.612705454,
+        -2.5426e-05
+      ]
+    ],
+    "scan_seconds": 31.1
+  },
+  "sonarview": {
+    "file": "C:\\Users\\synap\\Downloads\\2026-08-21-23-13.csv",
+    "bytes": 4233511217,
+    "rows": 29368782,
+    "header": [
+      "latitude,longitude,altitude (m),northing (local m),easting (local m),ping number,elapsed (s),datetime,altitude (m above MSL),northing (UTM m),easting (UTM m),coordinate projection,classification,channel,power (dB)"
+    ],
+    "groups": {
+      "all": {
+        "count": 29368782,
+        "min_xyz": [
+          202953.235,
+          2217486.171,
+          -29.942
+        ],
+        "max_xyz": [
+          203476.911,
+          2217943.496,
+          -0.113
+        ],
+        "span_xyz": [
+          523.6760000000068,
+          457.3249999997206,
+          29.829
+        ],
+        "occupied_1m_cells": 129497
+      },
+      "class_not_2_negative_z": {
+        "count": 23226330,
+        "min_xyz": [
+          202955.035,
+          2217486.251,
+          -29.942
+        ],
+        "max_xyz": [
+          203476.773,
+          2217941.118,
+          -0.115
+        ],
+        "span_xyz": [
+          521.737999999983,
+          454.86699999962,
+          29.827
+        ],
+        "occupied_1m_cells": 119803
+      },
+      "class_1": {
+        "count": 20899705,
+        "min_xyz": [
+          202955.391,
+          2217486.363,
+          -29.942
+        ],
+        "max_xyz": [
+          203476.579,
+          2217941.118,
+          -0.115
+        ],
+        "span_xyz": [
+          521.1879999999946,
+          454.75499999988824,
+          29.827
+        ],
+        "occupied_1m_cells": 117697
+      }
+    },
+    "classes": {
+      "1": 20899705,
+      "2": 6142452,
+      "5": 2326625
+    },
+    "channels": {
+      "0": 15715300,
+      "1": 13653482
+    },
+    "elapsed_range": [
+      0.032,
+      2495.116
+    ],
+    "ping_range": [
+      129924.0,
+      159984.0
+    ],
+    "sample_quantiles_xyz": [
+      [
+        202954.159,
+        2217486.198,
+        -29.871
+      ],
+      [
+        202972.74587,
+        2217496.6008699997,
+        -23.50026
+      ],
+      [
+        203247.4565,
+        2217685.24,
+        -9.247
+      ],
+      [
+        203455.19013,
+        2217897.10991,
+        -0.461
+      ],
+      [
+        203476.08,
+        2217940.56,
+        -0.139
+      ]
+    ],
+    "scan_seconds": 70.74
+  },
+  "coverage_comparison": {
+    "all": {
+      "app_cells": 40177,
+      "sonarview_cells": 129497,
+      "shared_cells": 38523,
+      "app_only_cells": 1654,
+      "sonarview_only_cells": 90974
+    },
+    "class_not_2_negative_z": {
+      "app_cells": 40177,
+      "sonarview_cells": 119803,
+      "shared_cells": 35768,
+      "app_only_cells": 4409,
+      "sonarview_only_cells": 84035
+    },
+    "class_1": {
+      "app_cells": 40177,
+      "sonarview_cells": 117697,
+      "shared_cells": 35347,
+      "app_only_cells": 4830,
+      "sonarview_only_cells": 82350
+    }
+  }
+}

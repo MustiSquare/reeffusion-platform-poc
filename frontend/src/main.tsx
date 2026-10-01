@@ -57,6 +57,8 @@ import SurveyArchive from "./survey/SurveyArchive";
 import { clearOverwriteApprovals } from "./api/confirm";
 import LiveSurvey from "./survey/LiveSurvey";
 import { viewerFraming } from "./survey/viewerFraming";
+import {seaOrientation} from './survey/orientationMath';
+import {northView,northAzimuth,reefFromWorld,applyDisplayMatrix} from './survey/viewerOrientation';
 
 type Theme = "dark" | "light";
 const THEME_KEY = "reef-theme";
@@ -285,11 +287,13 @@ function OrbitController({
   viewSignal,
   minDistance,
   maxDistance,
+  azimuth,
 }: {
   target: THREE.Vector3;
   viewSignal: number;
   minDistance: number;
   maxDistance: number;
+  azimuth: number|null;
 }) {
   const { camera, gl } = useThree();
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -300,11 +304,23 @@ function OrbitController({
     controls.screenSpacePanning = true;
     controls.minDistance = minDistance;
     controls.maxDistance = maxDistance;
+    if(azimuth!==null){
+      controls.minAzimuthAngle=azimuth;
+      controls.maxAzimuthAngle=azimuth;
+      controls.maxPolarAngle=Math.PI/2-.001;
+    }
     controls.target.copy(target);
     controls.update();
     controlsRef.current = controls;
     return () => controls.dispose();
   }, [camera, gl, target, minDistance, maxDistance]);
+  useEffect(()=>{
+    const controls=controlsRef.current;if(!controls)return;
+    controls.minAzimuthAngle=azimuth??-Infinity;
+    controls.maxAzimuthAngle=azimuth??Infinity;
+    controls.maxPolarAngle=azimuth===null?Math.PI:Math.PI/2-.001;
+    controls.update();
+  },[azimuth]);
   useEffect(() => {
     controlsRef.current?.target.copy(target);
     controlsRef.current?.update();
@@ -398,7 +414,7 @@ function transformGlbScene(scene: THREE.Object3D, zScale: number) {
   clone.traverse((child: any) => {
     if (child.isMesh) {
       child.geometry = child.geometry.clone();
-      child.geometry.applyMatrix4(matrix);
+      applyDisplayMatrix(child.geometry,matrix);
       child.geometry.computeBoundingBox();
       child.geometry.computeBoundingSphere();
       child.material = child.material?.clone?.() || new THREE.MeshStandardMaterial({ color: "#38bdf8" });
@@ -613,6 +629,7 @@ function ReefScene({
   seaLevels,
   picked,
   coordinates,
+  northLocked,
 }: {
   points: ReefPoint[];
   annotations: AnnotationItem[];
@@ -631,6 +648,7 @@ function ReefScene({
   glbScene?: THREE.Object3D | null;
   theme: Theme;
   coordinates?:any;
+  northLocked:boolean;
   soundingPoints:Sounding[];
   seaLevels:SeaLevels;
   picked:ReefPoint|null;
@@ -682,43 +700,50 @@ function ReefScene({
     }
     const geometryBox = meshGeometry.boundingBox;
     if (geometryBox) box.union(geometryBox);
+    pointGeometry.computeBoundingBox();
+    if(pointGeometry.boundingBox)box.union(pointGeometry.boundingBox);
     return box;
-  }, [meshGeometry, transformedGlbScene, zScale]);
+  }, [meshGeometry, pointGeometry, transformedGlbScene, zScale]);
+  const orientation=useMemo(()=>sceneBounds.isEmpty()?null:seaOrientation(coordinates,{
+    minX:sceneBounds.min.x,maxX:sceneBounds.max.x,minY:sceneBounds.min.z,maxY:sceneBounds.max.z,
+  }),[coordinates,sceneBounds]);
+  const northSign=orientation?-1:1;
+  const worldBounds=useMemo(()=>sceneBounds.clone().applyMatrix4(new THREE.Matrix4().makeScale(1,1,northSign)),[sceneBounds,northSign]);
   const referenceBounds=useMemo(()=>{
-    const box=sceneBounds.clone();
+    const box=worldBounds.clone();
     for(const p of soundingPoints){const h=referenceHeights(referenceHeight(seaLevels.offset));
-      if(seaLevels.showSurface)box.expandByPoint(new THREE.Vector3(p[0],h.blue*zScale,p[1]));
-      if(seaLevels.showMsl&&h.yellow!==null)box.expandByPoint(new THREE.Vector3(p[0],h.yellow*zScale,p[1]));
+      if(seaLevels.showSurface)box.expandByPoint(new THREE.Vector3(p[0],h.blue*zScale,p[1]*northSign));
+      if(seaLevels.showMsl&&h.yellow!==null)box.expandByPoint(new THREE.Vector3(p[0],h.yellow*zScale,p[1]*northSign));
     }
     return box;
-  },[sceneBounds,soundingPoints,seaLevels,zScale]);
+  },[worldBounds,northSign,soundingPoints,seaLevels,zScale]);
   const { camera, size: viewport } = useThree();
   const framing = useMemo(() => viewerFraming(referenceBounds, viewport.width / Math.max(1, viewport.height)), [referenceBounds, viewport.width, viewport.height]);
   const center = framing.center;
   const [viewSignal, setViewSignal] = useState(0);
   useEffect(() => {
     const dist = framing.distance;
+    const preset=viewPreset.split('-')[0];
     const direction = new THREE.Vector3(5, 4, 7).normalize();
-    if (viewPreset === "top")
+    if (preset === "top")
       direction.set(0, 1, 0.001).normalize();
-    else if (viewPreset === "side")
+    else if (preset === "side")
       direction.set(1, 0, 0);
-    else if (viewPreset === "front")
+    else if (preset === "front")
       direction.set(0, 0, 1);
+    if(orientation)direction.copy(northView(orientation.north,preset));
     camera.position.copy(center).addScaledVector(direction, dist);
     camera.near = framing.near;
     camera.far = framing.far;
     camera.updateProjectionMatrix();
     camera.lookAt(center);
     setViewSignal((s) => s + 1);
-  }, [viewPreset, camera, framing]);
+  }, [viewPreset, camera, framing, orientation]);
   const handleMeshClick = (e: any) => {
     e.stopPropagation();
     const p = e.point as THREE.Vector3;
     const reefPoint = {
-      x: p.x,
-      y: p.z,
-      z: p.y / zScale,
+      ...reefFromWorld(p,zScale,northSign),
       className: selectedLabel,
       health: selectedLabel,
     };
@@ -731,7 +756,8 @@ function ReefScene({
       <ambientLight intensity={0.75} />
       <directionalLight position={[4, 8, 5]} intensity={1.4} />
       <pointLight position={[-4, -3, 2]} intensity={0.5} />
-      <OrbitController target={center} viewSignal={viewSignal} minDistance={framing.minDistance} maxDistance={framing.maxDistance} />
+      <OrbitController target={center} viewSignal={viewSignal} minDistance={framing.minDistance} maxDistance={framing.maxDistance} azimuth={northLocked&&orientation?northAzimuth(orientation.north):null} />
+      <group scale={[1,1,northSign]}>
       {layers.surface && transformedGlbScene && (
         <primitive object={transformedGlbScene} onClick={handleMeshClick} />
       )}
@@ -783,7 +809,8 @@ function ReefScene({
         />
       )}
       {soundingPoints.length>0&&<SoundingSurfaces points={soundingPoints} levels={seaLevels} zScale={zScale} picked={picked} coords={coordinates}/>}
-      {layers.depthRuler&&<DepthRuler bounds={sceneBounds} zScale={zScale} msl={referenceHeights(referenceHeight(seaLevels.offset)).yellow} picked={picked?.z??null} theme={theme}/>}
+      </group>
+      {layers.depthRuler&&<DepthRuler bounds={worldBounds} zScale={zScale} msl={referenceHeights(referenceHeight(seaLevels.offset)).yellow} picked={picked?.z??null} theme={theme}/>}
       {layers.grid && (
         <gridHelper
           args={[framing.gridSize, 20, scene.grid, scene.gridSub]}
@@ -836,6 +863,9 @@ function ProfessionalViewer({
     "benthic",
   );
   const [viewPreset, setViewPreset] = useState("reset");
+  const [northLocked,setNorthLocked]=useState(true);
+  const hasNorth=useMemo(()=>!!seaOrientation(dataset?.coordinate_system,{minX:0,maxX:1,minY:0,maxY:1}),[dataset?.coordinate_system]);
+  useEffect(()=>{setNorthLocked(true);setViewPreset('reset');},[dataset?.id]);
   const [measure, setMeasure] = useState<ReefPoint[]>([]);
   const [layers, setLayers] = useState({
     pointCloud: true,
@@ -1064,9 +1094,12 @@ function ProfessionalViewer({
           <RotateCcw size={16} />
           Fit dataset
         </button>
-        <button onClick={() => setViewPreset("top")}>Top</button>
-        <button onClick={() => setViewPreset("side")}>Side</button>
-        <button onClick={() => setViewPreset("front")}>Front</button>
+        <button onClick={() => setViewPreset(`top-${Date.now()}`)}>Top</button>
+        <button disabled={hasNorth&&northLocked} title={hasNorth&&northLocked?'Turn off North-up to use the side view':undefined} onClick={() => setViewPreset(`side-${Date.now()}`)}>Side</button>
+        <button onClick={() => setViewPreset(`front-${Date.now()}`)}>Front</button>
+        <button disabled={!hasNorth} aria-pressed={hasNorth&&northLocked} title={hasNorth?'Keep geographic north at the top while tilting, panning and zooming':'North orientation requires geographic coordinates'} onClick={()=>{
+          setNorthLocked(!northLocked);if(!northLocked)setViewPreset(`reset-${Date.now()}`);
+        }}>{hasNorth&&northLocked?'North-up locked':'North-up'}</button>
       </div>
       <div className="viewerLayout">
         <aside className="viewerSidePanel">
@@ -1194,6 +1227,7 @@ function ProfessionalViewer({
                 glbScene={glbScene}
                 theme={theme}
                 coordinates={dataset?.coordinate_system}
+                northLocked={northLocked}
                 soundingPoints={soundingPoints}
                 seaLevels={seaLevels}
                 picked={picked}
@@ -1203,7 +1237,7 @@ function ProfessionalViewer({
           <div className="viewerHud">
             <b>Controls</b>
             <span>
-              Left drag rotate · right drag pan · wheel zoom · click mesh to
+              {hasNorth&&northLocked?'North-up · left drag tilt':'Left drag rotate'} · right drag pan · wheel zoom · click mesh to
               inspect, annotate points, draw surface polygons, or measure
             </span>
             {picked && (

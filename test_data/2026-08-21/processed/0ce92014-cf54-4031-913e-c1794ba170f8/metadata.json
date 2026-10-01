@@ -1,0 +1,520 @@
+{
+  "processed_dataset_id": "0ce92014-cf54-4031-913e-c1794ba170f8",
+  "name": "Processed 2026-08-21-20-15.svlz \u00c3\u201a\u00c2\u00b7 50 m block 4073, 44342",
+  "raw_dataset_id": "fe8f8b4d-5858-5031-a503-567289406b3b",
+  "survey_date_utc": "2026-08-21T20:15:15.717000+00:00",
+  "coordinate_system": {
+    "coordinate_version": 2,
+    "crs": "LOCAL_GRID",
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "vertical_convention": "elevation_positive_up",
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      203650,
+      2217100
+    ],
+    "sea_level_reference": {
+      "version": 1,
+      "source": "GLOBAL_POSITION_INT.alt (mm converted to metres)",
+      "vehicle_altitude_msl_m": 23.130383667602164,
+      "vehicle_altitude_msl_range_m": [
+        22.78,
+        23.49
+      ],
+      "soundings": 29218,
+      "total_soundings": 29218,
+      "coverage": 1.0,
+      "msl_z_m": null,
+      "sea_surface_z_m": null,
+      "status": "navigation_altitude_only",
+      "note": "Navigation altitude is retained for provenance, not used as sonar altitude or a sea-level plane. Waterline and MSL offsets are not recorded."
+    },
+    "sounding_reference_version": 2
+  },
+  "quality_report": {
+    "validation_status": "warning",
+    "warnings": [
+      "No GPS asset was present for geospatial validation",
+      "1 packets omitted: unmatched_point_packet.",
+      "Partial survey: legacy grid metrics include interpolation outside measured coverage."
+    ],
+    "errors": [],
+    "checks": {
+      "rugosity_computed": true,
+      "mesh_formats": [
+        "glb",
+        "ply",
+        "obj"
+      ],
+      "used_fallback_geometry": false,
+      "point_count": 2116,
+      "missing_gps": true,
+      "depth_outliers": {
+        "method": "modified_z_score",
+        "point_count": 2116,
+        "median_z_m": -3.9968,
+        "min_z_m": -5.6416,
+        "max_z_m": -1.4627,
+        "outlier_count": 66,
+        "outlier_ratio": 0.031191,
+        "outlier_ratio_warning_threshold": 0.05,
+        "warnings": []
+      },
+      "survey_coverage": {
+        "bounds": {
+          "min_x": 0.088,
+          "min_y": 39.693,
+          "max_x": 44.231,
+          "max_y": 49.968,
+          "min_z": -6.08,
+          "max_z": -0.089
+        },
+        "coverage_area": 453.5693,
+        "coverage_area_units": "square_meters",
+        "point_count": 261,
+        "point_density": 0.575436,
+        "grid_shape": [
+          46,
+          46
+        ],
+        "interpolated": true,
+        "regular_grid": false
+      },
+      "image_quality": {
+        "model_name": "ImageQuality Agent",
+        "model_version": "image-qa-local-v1",
+        "confidence": 0.9,
+        "visibility_score": 83.4,
+        "blur_risk": 8.4,
+        "lighting_uniformity": 76.8,
+        "notes": [
+          "Underwater frames pass quality gates",
+          "QA results support downstream reconstruction"
+        ],
+        "model_run_id": "45f9bc86-068d-49a7-8ea7-dcd2c448ebab",
+        "provider": "local",
+        "provenance": {
+          "provider": "local",
+          "task": "image_quality_assessment",
+          "mode": "local_optional_fallback",
+          "created_at": "2026-09-30T14:00:05.518210+00:00",
+          "input_keys": [
+            "asset_counts",
+            "coordinate_system",
+            "raw_dataset_id",
+            "sensor_metadata"
+          ]
+        }
+      }
+    },
+    "workflow_validation": {
+      "status": "passed_with_warnings",
+      "purpose": "processing pipeline execution and output generation"
+    },
+    "scientific_validity": {
+      "status": "provisional_survey_replay",
+      "is_scientifically_valid": false,
+      "reasons": [
+        "Workflow outputs verify that platform processing runs end-to-end.",
+        "Scientific conclusions require calibrated sensors, reviewed CRS/datum, and field QA."
+      ]
+    },
+    "calibration": {
+      "camera_calibration_present": false,
+      "sonar_calibration_present": false,
+      "coordinate_reference_reviewed": false
+    },
+    "uncertainty": {
+      "qualitative_level": "high",
+      "flags": [
+        "missing_gps"
+      ],
+      "depth_outlier_ratio": 0.031191,
+      "image_visibility_score": 83.4,
+      "model_confidences": {
+        "image_quality": 0.9,
+        "segmentation": 0.86,
+        "benthic_classification": 0.84,
+        "health_classification": 0.91,
+        "projected_3d_layers": 0.82
+      },
+      "note": "Uncertainty is a workflow estimate, not a calibrated measurement uncertainty budget."
+    }
+  },
+  "metrics": {
+    "surface_area": 2069.001654653564,
+    "planar_area": 2025.0,
+    "rugosity": 1.0217292121745996,
+    "local_mean": 1.0218252923786526,
+    "cover": {
+      "coral": 43.6,
+      "rock": 19.5,
+      "sand": 19.4,
+      "algae": 17.5
+    },
+    "health": {
+      "healthy": 66.9,
+      "bleached": 15.0,
+      "dead": 8.7,
+      "diseased": 9.4
+    },
+    "quality": {
+      "validation_status": "warning",
+      "warnings": [
+        "No GPS asset was present for geospatial validation",
+        "1 packets omitted: unmatched_point_packet.",
+        "Partial survey: legacy grid metrics include interpolation outside measured coverage."
+      ],
+      "errors": [],
+      "checks": {
+        "rugosity_computed": true,
+        "mesh_formats": [
+          "glb",
+          "ply",
+          "obj"
+        ],
+        "used_fallback_geometry": false,
+        "point_count": 2116,
+        "missing_gps": true,
+        "depth_outliers": {
+          "method": "modified_z_score",
+          "point_count": 2116,
+          "median_z_m": -3.9968,
+          "min_z_m": -5.6416,
+          "max_z_m": -1.4627,
+          "outlier_count": 66,
+          "outlier_ratio": 0.031191,
+          "outlier_ratio_warning_threshold": 0.05,
+          "warnings": []
+        },
+        "survey_coverage": {
+          "bounds": {
+            "min_x": 0.088,
+            "min_y": 39.693,
+            "max_x": 44.231,
+            "max_y": 49.968,
+            "min_z": -6.08,
+            "max_z": -0.089
+          },
+          "coverage_area": 453.5693,
+          "coverage_area_units": "square_meters",
+          "point_count": 261,
+          "point_density": 0.575436,
+          "grid_shape": [
+            46,
+            46
+          ],
+          "interpolated": true,
+          "regular_grid": false
+        },
+        "image_quality": {
+          "model_name": "ImageQuality Agent",
+          "model_version": "image-qa-local-v1",
+          "confidence": 0.9,
+          "visibility_score": 83.4,
+          "blur_risk": 8.4,
+          "lighting_uniformity": 76.8,
+          "notes": [
+            "Underwater frames pass quality gates",
+            "QA results support downstream reconstruction"
+          ],
+          "model_run_id": "45f9bc86-068d-49a7-8ea7-dcd2c448ebab",
+          "provider": "local",
+          "provenance": {
+            "provider": "local",
+            "task": "image_quality_assessment",
+            "mode": "local_optional_fallback",
+            "created_at": "2026-09-30T14:00:05.518210+00:00",
+            "input_keys": [
+              "asset_counts",
+              "coordinate_system",
+              "raw_dataset_id",
+              "sensor_metadata"
+            ]
+          }
+        }
+      },
+      "workflow_validation": {
+        "status": "passed_with_warnings",
+        "purpose": "processing pipeline execution and output generation"
+      },
+      "scientific_validity": {
+        "status": "provisional_survey_replay",
+        "is_scientifically_valid": false,
+        "reasons": [
+          "Workflow outputs verify that platform processing runs end-to-end.",
+          "Scientific conclusions require calibrated sensors, reviewed CRS/datum, and field QA."
+        ]
+      },
+      "calibration": {
+        "camera_calibration_present": false,
+        "sonar_calibration_present": false,
+        "coordinate_reference_reviewed": false
+      },
+      "uncertainty": {
+        "qualitative_level": "high",
+        "flags": [
+          "missing_gps"
+        ],
+        "depth_outlier_ratio": 0.031191,
+        "image_visibility_score": 83.4,
+        "model_confidences": {
+          "image_quality": 0.9,
+          "segmentation": 0.86,
+          "benthic_classification": 0.84,
+          "health_classification": 0.91,
+          "projected_3d_layers": 0.82
+        },
+        "note": "Uncertainty is a workflow estimate, not a calibrated measurement uncertainty budget."
+      }
+    },
+    "scientific_validity": {
+      "status": "provisional_survey_replay",
+      "is_scientifically_valid": false,
+      "reasons": [
+        "Workflow outputs verify that platform processing runs end-to-end.",
+        "Scientific conclusions require calibrated sensors, reviewed CRS/datum, and field QA."
+      ]
+    },
+    "uncertainty": {
+      "qualitative_level": "high",
+      "flags": [
+        "missing_gps"
+      ],
+      "depth_outlier_ratio": 0.031191,
+      "image_visibility_score": 83.4,
+      "model_confidences": {
+        "image_quality": 0.9,
+        "segmentation": 0.86,
+        "benthic_classification": 0.84,
+        "health_classification": 0.91,
+        "projected_3d_layers": 0.82
+      },
+      "note": "Uncertainty is a workflow estimate, not a calibrated measurement uncertainty budget."
+    },
+    "ai": {
+      "image_quality": {
+        "model_name": "ImageQuality Agent",
+        "model_version": "image-qa-local-v1",
+        "confidence": 0.9,
+        "visibility_score": 83.4,
+        "blur_risk": 8.4,
+        "lighting_uniformity": 76.8,
+        "notes": [
+          "Underwater frames pass quality gates",
+          "QA results support downstream reconstruction"
+        ],
+        "model_run_id": "45f9bc86-068d-49a7-8ea7-dcd2c448ebab",
+        "provider": "local",
+        "provenance": {
+          "provider": "local",
+          "task": "image_quality_assessment",
+          "mode": "local_optional_fallback",
+          "created_at": "2026-09-30T14:00:05.518210+00:00",
+          "input_keys": [
+            "asset_counts",
+            "coordinate_system",
+            "raw_dataset_id",
+            "sensor_metadata"
+          ]
+        }
+      },
+      "segmentation": {
+        "model_name": "CoralSeg Agent",
+        "model_version": "coral-seg-local-v1",
+        "confidence": 0.86,
+        "mask_count": 141,
+        "classes": {
+          "coral": 42.7,
+          "background": 57.3
+        },
+        "model_run_id": "ba526e6a-d364-4e6c-a66a-2c9e649f9292",
+        "provider": "local",
+        "provenance": {
+          "provider": "local",
+          "task": "coral_segmentation",
+          "mode": "local_optional_fallback",
+          "created_at": "2026-09-30T14:00:05.526109+00:00",
+          "input_keys": [
+            "asset_counts",
+            "coordinate_system",
+            "raw_dataset_id",
+            "sensor_metadata"
+          ]
+        }
+      },
+      "benthic_classification": {
+        "model_name": "BenthicCover Agent",
+        "model_version": "benthic-cover-local-v1",
+        "confidence": 0.84,
+        "classes": {
+          "coral": 43.6,
+          "rock": 19.5,
+          "sand": 19.4,
+          "algae": 17.5
+        },
+        "model_run_id": "1b789a13-4a0c-40c4-99da-a689f2a15bc6",
+        "provider": "local",
+        "provenance": {
+          "provider": "local",
+          "task": "benthic_cover_classification",
+          "mode": "local_optional_fallback",
+          "created_at": "2026-09-30T14:00:05.533252+00:00",
+          "input_keys": [
+            "asset_counts",
+            "coordinate_system",
+            "raw_dataset_id",
+            "sensor_metadata"
+          ]
+        }
+      },
+      "health_classification": {
+        "model_name": "ReefHealth Agent",
+        "model_version": "coral-health-local-v1",
+        "confidence": 0.91,
+        "classes": {
+          "healthy": 66.9,
+          "bleached": 15.0,
+          "dead": 8.7,
+          "diseased": 9.4
+        },
+        "model_run_id": "b3af2742-376e-46a6-8ec1-3f30f3727f18",
+        "provider": "local",
+        "provenance": {
+          "provider": "local",
+          "task": "coral_health_classification",
+          "mode": "local_optional_fallback",
+          "created_at": "2026-09-30T14:00:05.540712+00:00",
+          "input_keys": [
+            "asset_counts",
+            "coordinate_system",
+            "raw_dataset_id",
+            "sensor_metadata"
+          ]
+        }
+      },
+      "projected_3d_layers": {
+        "model_name": "3D Layer Projection Agent",
+        "model_version": "ai-3d-projection-local-v1",
+        "confidence": 0.82,
+        "layers": [
+          "coral_segmentation_masks",
+          "benthic_cover_classes",
+          "health_classes"
+        ],
+        "projected_vertices": 4577,
+        "viewer_layer_ready": true,
+        "model_run_id": "d03ab39a-b149-46d5-8ad5-361319dbd572",
+        "provider": "local",
+        "provenance": {
+          "provider": "local",
+          "task": "project_ai_layers_to_3d",
+          "mode": "local_optional_fallback",
+          "created_at": "2026-09-30T14:00:05.678196+00:00",
+          "input_keys": [
+            "asset_counts",
+            "coordinate_system",
+            "point_count",
+            "raw_dataset_id",
+            "sensor_metadata"
+          ]
+        }
+      },
+      "insights": [
+        "Estimated coral cover is 43.6% based on benthic classification.",
+        "Healthy coral class is 66.9% with bleaching-like signal around 15.0%.",
+        "Combined bleaching/disease indicator is moderate and should be reviewed by a reef scientist.",
+        "AI layers were projected into the browser 3D model as viewer overlays."
+      ]
+    }
+  },
+  "source_metadata": {
+    "coordinate_version": 2,
+    "generation_state": "staged",
+    "geometry_generation": "full-v2-35306619-3a5d-45e5-8694-bbc5ed3d1495",
+    "snapshot_sha256": "3f316420c2753e21ca144a6ecd9784ba38136b29fc346f2f2bd5191bdfe16a5f",
+    "survey_name": "2026-08-21-20-15.svlz",
+    "source_name": "replays/39bd5e90-8f81-5a0d-968b-d086545d509f/source.svlz",
+    "source": "survey_replay",
+    "replay_id": "39bd5e90-8f81-5a0d-968b-d086545d509f",
+    "block": {
+      "column": 4073,
+      "row": 44342,
+      "size": 50,
+      "until": 2458.0
+    },
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      203650,
+      2217100
+    ],
+    "point_count": 261,
+    "source_sha256": "194f1d50f49cfa6841202ad2bafae4fd0f51c84266c904f017bf09803c8afdcf",
+    "warnings": [
+      "1 packets omitted: unmatched_point_packet."
+    ],
+    "support_radius_m": 2,
+    "surface_note": "Only faces supported within 2 m of measurements are exported; analysis still uses the interpolated grid."
+  },
+  "files": [
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 55321,
+      "sha256": "acc2587675645438f2c4ad7ee3274738b97536e898cad720ef008b1174ec8114",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "f415a059-c3aa-49f9-b76c-0e4f8478e030"
+    },
+    {
+      "name": "mesh.glb",
+      "size_bytes": 64400,
+      "sha256": "cb8cbcdbd9fb6a957f330342ee457eef3d0a27fc3f2aa7642061d34513638407",
+      "asset_type": "mesh_glb",
+      "asset_id": "f1734075-0156-4acd-a275-12ec26935bf2"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 54074,
+      "sha256": "93ff5ede1665e77b69ef523afcec9e0e95b889a5618b98234020c7a2a9570c9e",
+      "asset_type": "mesh_ply",
+      "asset_id": "a69c4e0c-3f0b-4c25-b930-581595672153"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 96934,
+      "sha256": "a63ce44bc7f5d9961a11bdde1675549ec72b480a2b7572a84b66aa9494c9c60f",
+      "asset_type": "mesh_obj",
+      "asset_id": "608349d3-944b-48fd-b6f2-cb3e90826cc8"
+    },
+    {
+      "name": "coral_texture.jpg",
+      "size_bytes": 195106,
+      "sha256": "d3ef63cdb81e1f463e8515aab2ac33a4bee757d42ea0417687c4197ef11a06f7",
+      "asset_type": "coral_texture",
+      "asset_id": "5b1147ac-3600-4d31-8c70-81022326d536"
+    },
+    {
+      "name": "texture_mapping.json",
+      "size_bytes": 32848,
+      "sha256": "22da94c098049f407130aa2bfb69aa6a53813a6bdba7ee6c658403505475ff6e",
+      "asset_type": "texture_mapping",
+      "asset_id": "f201f742-16c3-44a8-adb8-56df64dd4ec1"
+    },
+    {
+      "name": "sounding_references.json",
+      "size_bytes": 10784,
+      "sha256": "b773f2c86a9af1b30ca3081154b2337e311a2120fd0b8cbc55ee975a72efce29",
+      "asset_type": "sounding_references",
+      "asset_id": "8d02812f-a68c-4488-bf6a-40f46d5d1424"
+    },
+    {
+      "name": "bathymetry_xyz.csv",
+      "size_bytes": 5847,
+      "sha256": "3f316420c2753e21ca144a6ecd9784ba38136b29fc346f2f2bd5191bdfe16a5f",
+      "asset_type": "source_bathymetry",
+      "asset_id": "83a6d340-c6e9-48d2-b109-85ebd1f8befd"
+    }
+  ]
+}

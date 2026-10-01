@@ -199,7 +199,7 @@ def test_compatible_upload_cache_skips_decoder(replay, monkeypatch):
     storage = FakeObjectStore()
     data = b'cached-recording'
     digest = hashlib.sha256(data).hexdigest()
-    cached = {**replay, 'decoder_version':1, 'source_sha256':digest}
+    cached = {**replay, 'decoder_version':1, 'coordinate_version':survey.COORDINATE_VERSION, 'source_sha256':digest}
     storage.put_bytes(f'replay-cache/{digest}.json', json.dumps({'id':replay['id']}).encode())
     storage.put_bytes(f"replays/{replay['id']}/replay.json", json.dumps(cached).encode())
     monkeypatch.setattr(survey, 'store', lambda:storage)
@@ -210,7 +210,7 @@ def test_compatible_upload_cache_skips_decoder(replay, monkeypatch):
     assert result['name'] == 'renamed.svlog'
 
 
-def test_legacy_upgrade_is_saved_across_memory_cache_clear(monkeypatch):
+def test_legacy_upgrade_replaces_geometry_and_is_persisted(monkeypatch):
     import io, json
     from contextlib import closing
     from app.testing.fixtures import FakeObjectStore
@@ -227,17 +227,15 @@ def test_legacy_upgrade_is_saved_across_memory_cache_clear(monkeypatch):
     calls=[]
     def decode(*args, **kwargs):
         calls.append(True)
-        return {'frames':[{'t':0,'sounding_altitudes':[[1,2,-3,3]],'vertical_samples':[]}], 'motion_summary':{'samples':[]}}
+        return {'coordinate_version':survey.COORDINATE_VERSION, 'vertical_reference_version':2,
+                'frames':[{'t':0,'points':[[1,2,-3,0,0,1]],'sounding_altitudes':[[1,2,-3,3]],'vertical_samples':[]}], 'motion_summary':{'samples':[]}}
     monkeypatch.setattr(survey,'decode_sonar',decode)
-    survey.load_replay.cache_clear()
-    try:
-        first=survey.load_replay('legacy')
-        survey.load_replay.cache_clear()
-        second=survey.load_replay('legacy')
-        assert first == second
-        assert len(calls)==1
-        assert 'replays/legacy/motion.json' in storage.objects
-    finally: survey.load_replay.cache_clear()
+    first=survey.load_replay('legacy')
+    second=survey.load_replay('legacy')
+    assert first == second
+    assert first['frames'][0]['points'] == [[1,2,-3,0,0,1]]
+    assert len(calls)==1
+    assert 'replays/legacy/motion.json' in storage.objects
 
 
 def test_motion_uses_persisted_summary_without_recording_read(monkeypatch):

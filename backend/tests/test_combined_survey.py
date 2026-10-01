@@ -9,6 +9,18 @@ from app.db.session import Base
 from app.models.tables import ProcessedDataset, ProcessedAsset, Annotation
 from app.services import combined_survey
 
+
+def test_combination_rejects_mixed_coordinate_versions_and_legacy(fixture):
+    db,storage=fixture
+    second=db.get(ProcessedDataset,'1')
+    second.coordinate_system_json={**second.coordinate_system_json,'coordinate_version':2};db.commit()
+    with pytest.raises(HTTPException) as error:combined_survey.combine_datasets(['0','1'],db,storage)
+    assert error.value.status_code==409
+    second.coordinate_system_json={**second.coordinate_system_json,'coordinate_version':1}
+    second.viewer_config_json={'generation_state':'legacy'};db.commit()
+    with pytest.raises(HTTPException) as error:combined_survey.combine_datasets(['1'],db,storage)
+    assert error.value.status_code==409
+
 class Store:
     def __init__(self): self.data = {}
     def put_bytes(self, key, data, *args): self.data[key] = data

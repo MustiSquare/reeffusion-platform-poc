@@ -178,7 +178,9 @@ async def upload(
 def demo(db: Session=Depends(get_db), _principal=Depends(require_role("editor"))): return generate_demo(db, pair=True)
 
 @router.get("/datasets/raw")
-def raw_list(db: Session=Depends(get_db)): return [ds_summary(x) for x in db.query(RawDataset).order_by(RawDataset.created_at.desc()).all()]
+def raw_list(db: Session=Depends(get_db)):
+    from app.services.survey_repair import visible
+    return [ds_summary(x) for x in db.query(RawDataset).order_by(RawDataset.created_at.desc()).all() if visible(x)]
 
 @router.get("/datasets/raw/{dataset_id}")
 def raw_get(dataset_id: str, db: Session=Depends(get_db)):
@@ -194,14 +196,16 @@ def raw_delete(dataset_id: str, db: Session=Depends(get_db), _principal=Depends(
     return result
 
 @router.get("/datasets/processed")
-def proc_list(db: Session=Depends(get_db)): return [ds_summary(x) for x in db.query(ProcessedDataset).order_by(ProcessedDataset.created_at.desc()).all()]
+def proc_list(db: Session=Depends(get_db)):
+    from app.services.survey_repair import visible
+    return [ds_summary(x) for x in db.query(ProcessedDataset).order_by(ProcessedDataset.created_at.desc()).all() if visible(x)]
 
 @router.get("/datasets/processed/{dataset_id}")
 def proc_get(dataset_id: str, db: Session=Depends(get_db)):
     d=db.get(ProcessedDataset,dataset_id)
     if not d: raise HTTPException(404)
     config=d.viewer_config_json or {}
-    if config.get("source_dataset_ids"):
+    if config.get("source_dataset_ids") and config.get("generation_state", "active") == "active":
         from app.services.combined_survey import combine_datasets
         from app.services.tile_seams import SEAM_VERSION
         if "continuous_surface_version" in config or d.processing_version == "combined-supported-grid-v2" or config.get("tile_seam_version") != SEAM_VERSION:
@@ -220,6 +224,10 @@ def proc_delete(dataset_id: str, db: Session=Depends(get_db), _principal=Depends
 def process(dataset_id: str, db: Session=Depends(get_db), overwrite: bool = Header(default=False, alias="X-Confirm-Overwrite"), _principal=Depends(require_role("editor"))):
     raw = db.query(RawDataset).filter_by(id=dataset_id).with_for_update().first()
     if not raw: raise HTTPException(404)
+    from app.services.survey_repair import check_mutation, visible
+    if not visible(raw): raise HTTPException(409, "Legacy or staged cells cannot be overwritten; rebuild the survey")
+    if (raw.metadata_json or {}).get("replay_id"):
+        check_mutation(db, raw.metadata_json["replay_id"])
     active = db.query(ProcessingJob).filter(ProcessingJob.raw_dataset_id==dataset_id, ProcessingJob.status.notin_(["completed","failed"])).first()
     if active: return {"job_id":active.id,"status":active.status}
     key = (raw.metadata_json or {}).get("replay_id") or raw.id
