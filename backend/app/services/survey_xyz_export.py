@@ -139,7 +139,10 @@ def start_export(summary, db, storage, enqueue):
         return current
     replay_id, token = source["replay_id"], str(uuid4())
     if not client.set(keys(replay_id)[0], token, nx=True, ex=LEASE_SECONDS):
-        return status(source, storage)
+        concurrent = status(source, storage)
+        if concurrent['status'] in ('queued', 'preparing', 'completed'):
+            return concurrent
+        raise HTTPException(409, 'Wait for active raw-point preparation or survey rebuild to finish before exporting')
     try:
         state = {"status": "queued", "percent": 0, "stage": "Waiting for export worker", "point_count": 0}
         _update(replay_id, token, state)
@@ -173,7 +176,7 @@ def check_deletion(db, raw):
         except Exception as exc:
             raise HTTPException(503, "Cannot check export activity; retry deletion when the queue is available") from exc
         if active:
-            raise HTTPException(409, "Wait for the survey export or rebuild to finish before deleting this survey data")
+            raise HTTPException(409, "Wait for the survey export, raw-point preparation or rebuild to finish before deleting this survey data")
 
 
 @contextmanager

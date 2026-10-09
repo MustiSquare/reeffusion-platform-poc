@@ -39,9 +39,10 @@ export function SeaLevelReadout({point,levels}:{point:Sounding|null;levels:SeaLe
     <small>Distances use original metres; both surfaces follow Z exaggeration.</small></div>;
 }
 // Continuous reference water surfaces span the selected footprint, independently of seabed gaps.
-export function referenceTopology(points:Sounding[]){
+export function referenceTopology(points:Sounding[],footprint?:{minX:number;minY:number;maxX:number;maxY:number}){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for(const p of points)if(p.length>=4&&p.every(Number.isFinite)&&p[3]>0){minX=Math.min(minX,p[0]);minY=Math.min(minY,p[1]);maxX=Math.max(maxX,p[0]);maxY=Math.max(maxY,p[1]);}
+  if(footprint){minX=footprint.minX;minY=footprint.minY;maxX=footprint.maxX;maxY=footprint.maxY;}
   const positions:number[][]=[],edges:number[]=[],faces:number[]=[];
   if(!Number.isFinite(minX))return {positions,edges,faces};
   minX=Math.floor(minX);minY=Math.floor(minY);maxX=Math.max(minX+1,Math.ceil(maxX));maxY=Math.max(minY+1,Math.ceil(maxY));
@@ -54,8 +55,8 @@ export function referenceTopology(points:Sounding[]){
   for(let y=minY+step;y<maxY;y+=step)line([minX,y],[maxX,y]);
   return {positions,edges,faces};
 }
-export function SoundingSurfaces({points,levels,zScale,picked,coords}:{coords?:any;points:Sounding[];levels:SeaLevels;zScale:number;picked?:{x:number;y:number;z:number}|null}){
-  const topology=useMemo(()=>referenceTopology(points),[points]);
+export function SoundingSurfaces({points,levels,zScale,picked,coords,footprint}:{coords?:any;points:Sounding[];levels:SeaLevels;zScale:number;picked?:{x:number;y:number;z:number}|null;footprint?:{minX:number;minY:number;maxX:number;maxY:number}}){
+  const topology=useMemo(()=>referenceTopology(points,footprint),[points,footprint]);
   const offset=referenceHeight(levels.offset);
   const geometry=useMemo(()=>{
     const blue=new THREE.BufferGeometry(),yellow=new THREE.BufferGeometry();

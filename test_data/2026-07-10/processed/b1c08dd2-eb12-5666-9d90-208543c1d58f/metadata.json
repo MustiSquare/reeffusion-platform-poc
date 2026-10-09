@@ -1,0 +1,99 @@
+{
+  "processed_dataset_id": "b1c08dd2-eb12-5666-9d90-208543c1d58f",
+  "name": "Combined reef area (12 cells)",
+  "raw_dataset_id": null,
+  "survey_date_utc": "2026-07-10T20:00:46.221000+00:00",
+  "coordinate_system": {
+    "coordinate_version": 2,
+    "crs": "LOCAL_GRID",
+    "coordinate_system": "projected_or_local",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "vehicle_origin_uncorrected",
+    "vertical_convention": "elevation_positive_up",
+    "projected_crs": "EPSG:32605",
+    "projected_origin": [
+      196550.0,
+      2234650.0
+    ],
+    "sea_level_reference": {
+      "version": 1,
+      "source": "GLOBAL_POSITION_INT.alt (mm converted to metres)",
+      "vehicle_altitude_msl_m": 18.58994138248515,
+      "vehicle_altitude_msl_range_m": [
+        15.93,
+        19.82
+      ],
+      "soundings": 1107860,
+      "total_soundings": 1107860,
+      "coverage": 1.0,
+      "msl_z_m": null,
+      "sea_surface_z_m": null,
+      "status": "navigation_altitude_only",
+      "note": "Navigation altitude is retained for provenance, not used as sonar altitude or a sea-level plane. Waterline and MSL offsets are not recorded."
+    },
+    "sounding_reference_version": 2
+  },
+  "quality_report": {
+    "source_dataset_ids": [
+      "11eda3b4-a740-4e7c-b9f6-fab8872b7b32",
+      "1ae55c81-1b49-4877-a022-02c80dcb8ed0",
+      "20929c71-9c04-4076-9a6c-df210c9ca84b",
+      "2f53ca4e-4ef9-42f2-aba0-f240ea0df033",
+      "5b0f0651-146b-4f24-a01b-f583fe129330",
+      "9bc1704e-fc65-4f7d-9b29-f78f37e969d7",
+      "9f9c0d82-6003-4fcd-8e2f-827af0d15441",
+      "aca9e40d-88a8-4a29-b383-eec4225c8a94",
+      "c992d79e-a756-4a6c-9fd9-a6276043d9cf",
+      "cb909f7b-b04e-431e-87a1-37d3d7fafc52",
+      "d14270db-8eff-42df-ab0f-ca3e434a0fd1",
+      "ec874a7f-b18c-4bb0-bc23-50134558a8f6"
+    ],
+    "notes": [
+      "Original high-resolution surfaces retained unchanged; 3388 connecting faces added only at narrow, measurement-supported tile joins. Wider gaps preserved. Classes remain provisional."
+    ]
+  },
+  "metrics": {
+    "surface_area": 29853.53490172223,
+    "planar_area": 28642.377662407096,
+    "rugosity": 1.0422854992553487
+  },
+  "source_metadata": null,
+  "files": [
+    {
+      "name": "mesh.glb",
+      "size_bytes": 1121776,
+      "sha256": "64d0575ee29555c7f33a9497e2b132122e3fd3302e8d6f18210b5e5beb671085",
+      "asset_type": "mesh_glb",
+      "asset_id": "99a947f9-1716-4b4e-acc1-267ecb3ed84d"
+    },
+    {
+      "name": "point_cloud.xyz.csv",
+      "size_bytes": 1006795,
+      "sha256": "ecaa442a1dacecf1ee85294bc57536b067b22c1c798650d1783e7cb16227acd7",
+      "asset_type": "point_cloud_xyz",
+      "asset_id": "a597d327-80fd-4ae4-8c33-f5748b875682"
+    },
+    {
+      "name": "mesh.ply",
+      "size_bytes": 1182656,
+      "sha256": "9f5e73f6ad0f4c822ab92615d70f4b41933d40cb873715f735fa148ffbe1c84b",
+      "asset_type": "mesh_ply",
+      "asset_id": "a9b0749e-d845-4eb2-b25d-8456b81258bd"
+    },
+    {
+      "name": "mesh.obj",
+      "size_bytes": 2425356,
+      "sha256": "978ab68e9e150eb57da960d3fcddf8a54a3fe72ac2dda1ea44101d527b5fdbc1",
+      "asset_type": "mesh_obj",
+      "asset_id": "5a0eba1d-afd1-4949-87f4-4b16f0821f66"
+    },
+    {
+      "name": "sounding_references.json",
+      "size_bytes": 1314114,
+      "sha256": "bc0bd0e5d5e113c9c43b83eaf4e80bf2b572338ef19c498f6a9080322068e944",
+      "asset_type": "sounding_references",
+      "asset_id": "8c43d9f2-9cdf-47f8-abe5-34ce00007a8b"
+    }
+  ]
+}

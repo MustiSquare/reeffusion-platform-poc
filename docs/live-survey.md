@@ -225,12 +225,61 @@ by `GET /api/survey/archive/{survey_id}/detection-coverage` after rebuild. This 
 recorded coverage, not interpolated seafloor area. The 3D viewer still shows
 processed surfaces for selected cells, with its existing support rules.
 
-Georeferenced reef renders open with **North-up locked**: true north stays at the
-top and east to the right, with tilt, pan and zoom available. Turn off North-up
-for free rotation and the side view. Opening another dataset restores the lock.
+Georeferenced reef renders open facing true north, with east to the right and
+free rotation around the reef centre. **Fit dataset** restores that starting
+view. **Lock north-up** optionally restricts navigation to tilt, pan and zoom;
+**Unlock rotation** restores free orbit and the side view. Opening another
+dataset restores free rotation. Rectangle selection temporarily disables orbit
+while dragging and does not change the chosen rotation lock.
 The display accounts for UTM meridian convergence; measurements and stored
 coordinates are unchanged. Datasets without geographic coordinates retain free
 rotation. This viewer change requires no survey reprocessing.
+
+### Raw sonar detections
+
+The viewer's **Surface points** layer contains processed surface samples. The
+separate **Raw sonar detections** option prepares a reusable index directly from
+the original recording. Enable it and choose **Prepare / retry raw points** once.
+It opens in a reduced overview clipped to the selected cell or cells, preserving
+gaps between separate cells. The overview uses up to two million actual detections; it does
+not use averaged or generated points. Full-detail modes preserve every valid
+supported detection, including repeated positions.
+
+Use **Select inspection rectangle** to drag an area in north-up top view, then
+choose **Full detail in selected area**, or choose **Full detail in selected cells**.
+Every mode stays within the selected cells. Counts,
+chunk progress, partial-recording warnings and buffer estimates distinguish a
+complete load from a reduced or interrupted one. Full-detail loading can be
+slower and depends on available browser/GPU memory. Cancel and return to the
+overview if needed. Combined views from multiple recordings offer a source-survey
+selector; raw viewing loads one named recording at a time.
+
+Raw mode initially hides the processed surface and surface points. They can be
+enabled independently for comparison. Blue Z=0 and user-set yellow MSL reference
+planes span the displayed raw footprint, and the depth ruler remains available.
+These are display references, not a tide/datum correction to the recording.
+Annotation and measurement tools still operate on the processed surface.
+
+With **Matte surface (trial)** enabled, **Surface colour** switches between
+blue-grey and **Depth — Turbo spectrum**. The full-spectrum depth palette matches raw detections
+and retains matte lighting to reveal slopes. An available raw index supplies the
+shared full-survey depth range without loading point chunks. Otherwise the
+labelled selected-surface range is used. Colours use original Z values and are
+unaffected by display exaggeration or MSL offset. The choice persists in this
+browser; choosing blue-grey restores the muted appearance.
+
+The API uses `GET/POST /api/survey/archive/{survey_id}/raw-points`, plus
+`/manifest` and `/chunks/{chunk_id}` downloads. Index preparation shares the
+export/rebuild lease and deletion protection. Cached binary chunks live under
+the recording prefix, keyed by source hash, coordinate and format versions;
+source recordings, existing CSV exports and surfaces are not replaced.
+
+The August 23:13 recording was validated with 26,680,028 detections in 445 chunks
+(320,160,336 binary bytes), matching its full XYZ export and 127,291 occupied
+metre squares. Preparation took 194.65 seconds and the worker process peaked at
+151,140 KiB RSS. The four-request HTTP audit, including coordinate/coverage
+calculations, took 109.49 seconds. Browser GPU frame-rate and whole-survey visual
+validation remain unmeasured because browser automation was unavailable.
 
 Independent regression fixtures in `tests/fixtures/sonarview_coordinates.json`
 cover both channels and multiple headings from the supplied August recording.

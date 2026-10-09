@@ -3,6 +3,21 @@ import { Box3, PerspectiveCamera, Vector3 } from 'three';
 import { viewerFraming } from './viewerFraming';
 
 describe('dataset camera framing', () => {
+  it('centers the reef while keeping sea-level references in view',()=>{
+    const reef=new Box3(new Vector3(10,-80,20),new Vector3(35,-70,45));
+    const references=reef.clone().expandByPoint(new Vector3(10,0,20));
+    const focus=reef.getCenter(new Vector3());
+    const fit=viewerFraming(references,1,55,focus);
+    const camera=new PerspectiveCamera(55,1,fit.near,fit.far);
+    camera.position.copy(fit.center).addScaledVector(new Vector3(5,4,7).normalize(),fit.distance);
+    camera.lookAt(fit.center);camera.updateMatrixWorld();
+    const projected=focus.clone().project(camera);
+    expect(projected.x).toBeCloseTo(0);expect(projected.y).toBeCloseTo(0);
+    for(const x of [references.min.x,references.max.x])for(const y of [references.min.y,references.max.y])for(const z of [references.min.z,references.max.z]){
+      const p=new Vector3(x,y,z).project(camera);
+      expect(Math.abs(p.x)).toBeLessThan(1);expect(Math.abs(p.y)).toBeLessThan(1);
+    }
+  });
   for (const width of [11,50,200,2000]) for (const aspect of [.45,1,2]) {
     it(`fits every corner of a ${width} m dataset at aspect ${aspect}`, () => {
       const box = new Box3(new Vector3(100,-80,200),new Vector3(100+width,-10,200+width));

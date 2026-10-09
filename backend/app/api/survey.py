@@ -3,6 +3,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -469,6 +470,95 @@ def xyz_export_status(survey_key: UUID, db: Session = Depends(get_db)):
         return status(source_for(archived_survey(survey_key, db), db, storage), storage)
     except RedisError as exc:
         raise HTTPException(503, "Export progress is temporarily unavailable. Retrying is safe.") from exc
+
+
+@router.get('/processed/{dataset_id}/raw-point-source')
+def raw_point_source(dataset_id: UUID, db: Session = Depends(get_db)):
+    from app.services.survey_archive import archive_surveys
+    dataset = db.get(ProcessedDataset, str(dataset_id))
+    if not dataset:
+        raise HTTPException(404, 'Dataset not found')
+    pending, leaves, seen = [dataset], {}, set()
+    while pending:
+        item = pending.pop()
+        if item.id in seen:
+            continue
+        seen.add(item.id)
+        children = (item.viewer_config_json or {}).get('source_dataset_ids', [])
+        if children:
+            pending.extend(child for ident in children if (child := db.get(ProcessedDataset, ident)) is not None)
+        else:
+            raw = db.get(RawDataset, item.raw_dataset_id) if item.raw_dataset_id else None
+            block = (item.viewer_config_json or {}).get('block_snapshot') or ((raw.metadata_json or {}).get('block', {}) if raw else {})
+            size, column, row = block.get('size'), block.get('column'), block.get('row')
+            if all(isinstance(v, (int, float)) and math.isfinite(v) for v in (size, column, row)) and size > 0:
+                leaves[str(item.id)] = [column * size, row * size, (column + 1) * size, (row + 1) * size]
+    sources, recordings = [], set()
+    for survey in archive_surveys(db):
+        if any(str(p['id']) in leaves for p in survey['processed']):
+            from app.services.survey_xyz_export import source_for
+            source = source_for(survey, db, store())
+            if source and source['replay_id'] not in recordings:
+                recordings.add(source['replay_id'])
+                areas = [leaves[str(p['id'])] for p in survey['processed'] if str(p['id']) in leaves]
+                sources.append({'survey_id': survey['id'], 'name': survey['name'], 'areas': areas})
+    if sources:
+        return {**sources[0], 'surveys': sources}
+    return {'reason': 'No original sonar recording is associated with this dataset.'}
+
+
+@router.get('/archive/{survey_key}/raw-points')
+def raw_points_status(survey_key: UUID, db: Session = Depends(get_db)):
+    from app.services import raw_points
+    from app.services.survey_xyz_export import source_for
+    storage = store()
+    return raw_points.status(source_for(archived_survey(survey_key, db), db, storage), storage)
+
+
+@router.post('/archive/{survey_key}/raw-points')
+def raw_points_start(survey_key: UUID, db: Session = Depends(get_db), _principal=Depends(require_role('editor'))):
+    from app.services.raw_points import start
+    from app.worker import prepare_raw_points
+    from kombu.exceptions import OperationalError
+    try:
+        return start(archived_survey(survey_key, db), db, store(), prepare_raw_points.delay)
+    except (RedisError, OperationalError) as exc:
+        raise HTTPException(503, 'Raw-point queue unavailable; retry shortly.') from exc
+
+
+def raw_point_manifest(survey_key, db, storage):
+    from app.services.raw_points import cached
+    from app.services.survey_xyz_export import source_for
+    manifest = cached(source_for(archived_survey(survey_key, db), db, storage), storage)
+    if not manifest:
+        raise HTTPException(409, 'Prepare raw points first')
+    return manifest
+
+
+@router.get('/archive/{survey_key}/raw-points/manifest')
+def raw_points_manifest(survey_key: UUID, db: Session = Depends(get_db)):
+    manifest = raw_point_manifest(survey_key, db, store())
+    return {k: v for k, v in manifest.items() if k != 'generation'}
+
+
+@router.get('/archive/{survey_key}/raw-points/chunks/{chunk_id}')
+def raw_points_chunk(survey_key: UUID, chunk_id: str, db: Session = Depends(get_db)):
+    from contextlib import closing
+    from fastapi.responses import StreamingResponse
+    storage = store()
+    manifest = raw_point_manifest(survey_key, db, storage)
+    chunk = next((c for c in manifest['chunks'] + manifest['overview'] if c['id'] == chunk_id), None)
+    if not chunk:
+        raise HTTPException(404, 'Raw-point chunk not found')
+    try:
+        response = storage.client.get_object(Bucket=storage.bucket, Key=f"{manifest['generation']}/{chunk_id}.bin")
+    except ClientError as exc:
+        raise HTTPException(503, 'Raw-point chunk unavailable; retry loading.') from exc
+    def stream():
+        with closing(response['Body']) as body:
+            while data := body.read(1024 * 1024):
+                yield data
+    return StreamingResponse(stream(), media_type='application/octet-stream', headers={'Content-Length': str(chunk['bytes'])})
 
 
 @router.get("/archive/{survey_key}/repair")

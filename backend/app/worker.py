@@ -24,3 +24,10 @@ def repair_survey(source: dict, token: str):
     from app.services.survey_repair import run
     from app.storage.s3 import store
     run(source, token, store(), SessionLocal)
+
+
+@celery_app.task(name="prepare_raw_points", acks_late=True, reject_on_worker_lost=True)
+def prepare_raw_points(source: dict, token: str):
+    from app.services.raw_points import run
+    from app.storage.s3 import store
+    run(source, token, store(), SessionLocal)

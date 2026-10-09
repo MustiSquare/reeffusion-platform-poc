@@ -59,8 +59,6 @@ import LiveSurvey from "./survey/LiveSurvey";
 import { viewerFraming } from "./survey/viewerFraming";
 import {seaOrientation} from './survey/orientationMath';
 import {northView,northAzimuth,reefFromWorld,applyDisplayMatrix} from './survey/viewerOrientation';
-import {orientBathymetryUp,matteSurfaceMaterial,colourSurfaceDepth} from './survey/surfaceAppearance';
-import {depthColour,turboGradient} from './survey/depthPalette';
 import {useRawPoints,RawPointControls,RawPointLayer,RawAreaSelection,RawState} from './survey/RawPoints';
 
 type Theme = "dark" | "light";
@@ -339,13 +337,16 @@ function buildPointGeometry(
   points: ReefPoint[],
   zScale: number,
   colorBy: "depth" | "benthic" | "health",
-  depthRange:readonly number[],
 ) {
   points = points.filter(p => p.supported !== false);
   if (!points.length) return new THREE.BufferGeometry();
   const positions = new Float32Array(points.length * 3);
   const colors = new Float32Array(points.length * 3);
   const color = new THREE.Color();
+  const zVals = points.map((p) => p.z);
+  const minZ = zVals.reduce((a,b)=>Math.min(a,b),Infinity);
+  const maxZ = zVals.reduce((a,b)=>Math.max(a,b),-Infinity);
+  const span = Math.max(maxZ - minZ, 0.001);
   points.forEach((p, i) => {
     positions[i * 3] = p.x;
     positions[i * 3 + 1] = p.z * zScale;
@@ -353,7 +354,7 @@ function buildPointGeometry(
     if (colorBy === "benthic") color.set(labelColors[p.className || "rock"]);
     else if (colorBy === "health")
       color.set(labelColors[p.health || "healthy"]);
-    else {const rgb=depthColour(p.z,depthRange);color.setRGB(rgb[0],rgb[1],rgb[2]);}
+    else color.setHSL(0.56 - ((p.z - minZ) / span) * 0.18, 0.75, 0.55);
     colors[i * 3] = color.r;
     colors[i * 3 + 1] = color.g;
     colors[i * 3 + 2] = color.b;
@@ -406,7 +407,7 @@ function buildSurfaceGeometry(points: ReefPoint[], zScale: number) {
   return geometry;
 }
 
-function transformGlbScene(scene: THREE.Object3D, zScale: number, matteSurface:boolean, depthSurface:boolean, depthRange:readonly number[]) {
+function transformGlbScene(scene: THREE.Object3D, zScale: number) {
   const clone = scene.clone(true);
   const matrix = new THREE.Matrix4().set(
     1, 0, 0, 0,
@@ -417,12 +418,10 @@ function transformGlbScene(scene: THREE.Object3D, zScale: number, matteSurface:b
   clone.traverse((child: any) => {
     if (child.isMesh) {
       child.geometry = child.geometry.clone();
-      if(matteSurface)orientBathymetryUp(child.geometry);
-      if(matteSurface&&depthSurface)colourSurfaceDepth(child.geometry,depthRange);
       applyDisplayMatrix(child.geometry,matrix);
       child.geometry.computeBoundingBox();
       child.geometry.computeBoundingSphere();
-      child.material = matteSurface?matteSurfaceMaterial(depthSurface):(child.material?.clone?.() || new THREE.MeshStandardMaterial({ color: "#38bdf8" }));
+      child.material = child.material?.clone?.() || new THREE.MeshStandardMaterial({ color: "#38bdf8" });
       child.castShadow = false;
       child.receiveShadow = true;
     }
@@ -635,9 +634,6 @@ function ReefScene({
   picked,
   coordinates,
   northLocked,
-  matteSurface,
-  depthSurface,
-  depthRange,
   raw,
 }: {
   points: ReefPoint[];
@@ -658,9 +654,6 @@ function ReefScene({
   theme: Theme;
   coordinates?:any;
   northLocked:boolean;
-  matteSurface:boolean;
-  depthSurface:boolean;
-  depthRange:readonly number[];
   raw:RawState;
   soundingPoints:Sounding[];
   seaLevels:SeaLevels;
@@ -668,21 +661,19 @@ function ReefScene({
 }) {
   const scene = sceneColors[theme];
   const pointGeometry = useMemo(
-    () => buildPointGeometry(points, zScale, colorBy,depthRange),
-    [points, zScale, colorBy,depthRange],
+    () => buildPointGeometry(points, zScale, colorBy),
+    [points, zScale, colorBy],
   );
   const meshGeometry = useMemo(
-    () => {const geometry=glbScene ? new THREE.BufferGeometry() : buildSurfaceGeometry(points, zScale);
-      if(!glbScene&&points.length&&matteSurface&&depthSurface)colourSurfaceDepth(geometry,depthRange,'y',zScale);
-      return geometry;},
-    [points, zScale, glbScene,matteSurface,depthSurface,depthRange],
+    () => glbScene ? new THREE.BufferGeometry() : buildSurfaceGeometry(points, zScale),
+    [points, zScale, glbScene],
   );
   useEffect(() => () => {pointGeometry.dispose();}, [pointGeometry]);
   useEffect(() => () => {meshGeometry.dispose();}, [meshGeometry]);
   const [reefTexture, setReefTexture] = useState<THREE.Texture | null>(null);
   const transformedGlbScene = useMemo(
-    () => (glbScene ? transformGlbScene(glbScene, zScale, matteSurface,depthSurface,depthRange) : null),
-    [glbScene, zScale, matteSurface,depthSurface,depthRange],
+    () => (glbScene ? transformGlbScene(glbScene, zScale) : null),
+    [glbScene, zScale],
   );
   useEffect(() => {
     if (!textureUrl) {
@@ -727,17 +718,15 @@ function ReefScene({
   useEffect(()=>{if(!sceneBounds.isEmpty())raw.setDefaultArea([sceneBounds.min.x+anchor[0],sceneBounds.min.z+anchor[1],sceneBounds.max.x+anchor[0],sceneBounds.max.z+anchor[1]]);},[sceneBounds,coordinates,raw.setDefaultArea]);
   const worldBounds=useMemo(()=>{
     const box=sceneBounds.clone();
-    if(raw.enabled&&raw.manifest&&raw.cellBounds){
+    if(raw.enabled&&raw.manifest){
       if(!layers.surface&&!layers.pointCloud&&!layers.wireframe)box.makeEmpty();
-      const m=raw.manifest,area=raw.cellBounds;
+      const m=raw.manifest,area=raw.scope==='area'?raw.area:null;
       const lo=area?[area[0],area[1]]:m.min,hi=area?[area[2],area[3]]:m.max;
-      const minDepth=sceneBounds.isEmpty()?m.min[2]*zScale:sceneBounds.min.y;
-      const maxDepth=sceneBounds.isEmpty()?m.max[2]*zScale:sceneBounds.max.y;
-      box.expandByPoint(new THREE.Vector3(lo[0]-anchor[0],minDepth,lo[1]-anchor[1]));
-      box.expandByPoint(new THREE.Vector3(hi[0]-anchor[0],maxDepth,hi[1]-anchor[1]));
+      box.expandByPoint(new THREE.Vector3(lo[0]-anchor[0],m.min[2]*zScale,lo[1]-anchor[1]));
+      box.expandByPoint(new THREE.Vector3(hi[0]-anchor[0],m.max[2]*zScale,hi[1]-anchor[1]));
     }
     return box.applyMatrix4(new THREE.Matrix4().makeScale(1,1,northSign));
-  },[sceneBounds,northSign,raw.enabled,raw.manifest,raw.cellBounds,coordinates,zScale,layers.surface,layers.pointCloud,layers.wireframe]);
+  },[sceneBounds,northSign,raw.enabled,raw.manifest,raw.scope,raw.area,coordinates,zScale,layers.surface,layers.pointCloud,layers.wireframe]);
   const rawFootprint=useMemo(()=>raw.enabled&&raw.manifest?{
     minX:worldBounds.min.x,maxX:worldBounds.max.x,
     minY:Math.min(worldBounds.min.z*northSign,worldBounds.max.z*northSign),
@@ -756,8 +745,7 @@ function ReefScene({
     return box;
   },[worldBounds,northSign,soundingPoints,seaLevels,zScale,rawFootprint]);
   const { camera, size: viewport } = useThree();
-  const framing = useMemo(() => viewerFraming(referenceBounds, viewport.width / Math.max(1, viewport.height),55,
-    worldBounds.isEmpty()?undefined:worldBounds.getCenter(new THREE.Vector3())), [referenceBounds,worldBounds,viewport.width,viewport.height]);
+  const framing = useMemo(() => viewerFraming(referenceBounds, viewport.width / Math.max(1, viewport.height)), [referenceBounds, viewport.width, viewport.height]);
   const center = framing.center;
   const [viewSignal, setViewSignal] = useState(0);
   useEffect(() => {
@@ -808,9 +796,8 @@ function ReefScene({
           visible={layers.surface}
         >
           <meshStandardMaterial
-            map={matteSurface&&depthSurface?undefined:reefTexture || undefined}
-            vertexColors={matteSurface&&depthSurface}
-            color={matteSurface&&depthSurface?'#ffffff':reefTexture ? "#ffffff" : scene.reef}
+            map={reefTexture || undefined}
+            color={reefTexture ? "#ffffff" : scene.reef}
             transparent
             opacity={layers.pointCloud ? 0.55 : 0.92}
             side={THREE.DoubleSide}
@@ -907,15 +894,6 @@ function ProfessionalViewer({
   );
   const [viewPreset, setViewPreset] = useState("reset");
   const [northLocked,setNorthLocked]=useState(false);
-  const [matteSurface,setMatteSurface]=useState(()=>{try{return localStorage.getItem('reef-matte-surface-trial')!=='off';}catch{return true;}});
-  const [surfaceColour,setSurfaceColour]=useState<'grey'|'depth'>(()=>{try{return localStorage.getItem('reef-surface-colour')==='depth'?'depth':'grey';}catch{return 'grey';}});
-  const depthRange=useMemo(()=>{
-    if(raw.manifest)return [raw.manifest.min[2],raw.manifest.max[2]];
-    let min=Infinity,max=-Infinity;
-    for(const p of points)if(p.supported!==false){min=Math.min(min,p.z);max=Math.max(max,p.z);}
-    if(glbScene){const box=new THREE.Box3().setFromObject(glbScene);if(!box.isEmpty()){min=Math.min(min,box.min.z);max=Math.max(max,box.max.z);}}
-    return Number.isFinite(min)?[min,max]:[0,0];
-  },[raw.manifest,points,glbScene]);
   const hasNorth=useMemo(()=>!!seaOrientation(dataset?.coordinate_system,{minX:0,maxX:1,minY:0,maxY:1}),[dataset?.coordinate_system]);
   useEffect(()=>{setNorthLocked(false);setViewPreset('reset');},[dataset?.id]);
   const [measure, setMeasure] = useState<ReefPoint[]>([]);
@@ -1171,12 +1149,6 @@ function ProfessionalViewer({
           ))}
           <RawPointControls raw={raw} onEnable={()=>setLayers(p=>({...p,surface:false,pointCloud:false,wireframe:false}))} onSelect={()=>{setViewPreset(`top-${Date.now()}`);}}/>
           <h3>Rendering</h3>
-          <label className="check"><input type="checkbox" checked={matteSurface} onChange={e=>{setMatteSurface(e.target.checked);try{localStorage.setItem('reef-matte-surface-trial',e.target.checked?'on':'off');}catch{}}}/>Matte surface (trial)</label>
-          <small>Two-sided matte shading. Turn off to restore the previous mesh appearance.</small>
-          <label>Surface colour<select disabled={!matteSurface} value={surfaceColour} onChange={e=>{const value=e.target.value as 'grey'|'depth';setSurfaceColour(value);try{localStorage.setItem('reef-surface-colour',value);}catch{}}}>
-            <option value="grey">Blue-grey</option><option value="depth">Depth — Turbo spectrum</option>
-          </select></label>
-          {matteSurface&&surfaceColour==='depth'&&<><div aria-label="Surface Turbo depth colour scale" style={{height:8,background:turboGradient}}/><small>Deep: Z {depthRange[0].toFixed(2)} m · Shallow: Z {depthRange[1].toFixed(2)} m.<br/>{raw.manifest?'Shared raw-survey depth range.':'Selected surface depth range; preparing raw points enables the shared survey range.'} Lighting shows shape; colours use original depths.</small></>}
           <label>
             Point size{" "}
             <input
@@ -1287,9 +1259,6 @@ function ProfessionalViewer({
                 theme={theme}
                 coordinates={dataset?.coordinate_system}
                 northLocked={northLocked}
-                matteSurface={matteSurface}
-                depthSurface={surfaceColour==='depth'}
-                depthRange={depthRange}
                 raw={raw}
                 soundingPoints={soundingPoints}
                 seaLevels={seaLevels}
